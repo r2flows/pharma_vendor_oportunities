@@ -246,21 +246,26 @@ def mostrar_tabla_vendor_detalle(vendor_df, dm_vendors_detail):
         st.info("No hay datos disponibles para mostrar.")
         return
     
-    # Extraer columnas básicas - Eliminar las columnas no deseadas
-    display_df = vendor_df[[
-        'Vendor ID', 
-        'Status', 
-        'Valor Potencial Total',
-        'Valor Convertido',
-        'Total Comprado Como DM'  # Mantenemos esta columna pero eliminamos las otras mencionadas
-    ]]
+    # Extraer columnas básicas - Verificar la existencia de cada columna antes de usarla
+    display_columns = []
+    for col in ['Vendor ID', 'Status', 'Valor Potencial Total', 'Valor Convertido']:
+        if col in vendor_df.columns:
+            display_columns.append(col)
+    
+    # Asegurarse de que hay columnas para mostrar
+    if not display_columns:
+        st.warning("No hay columnas válidas para mostrar.")
+        return
+    
+    # Crear display_df solo con las columnas disponibles
+    display_df = vendor_df[display_columns].copy()
+    
+    # Asegurarse de que 'Total Comprado Como DM' esté presente (añadir si no existe)
+    if 'Total Comprado Como DM' not in display_df.columns:
+        display_df['Total Comprado Como DM'] = 0.0
     
     # Crear una copia de display_df para no modificar el original
     display_df_combined = display_df.copy()
-    
-    # Ya no añadimos estas columnas como por defecto
-    # display_df_combined['Es Drug Manufacturer'] = 'No'
-    # display_df_combined['Drug Manufacturer ID'] = None
     
     # Si dm_vendors_detail tiene datos y la columna necesaria, procesar
     if not dm_vendors_detail.empty and 'Vendor Real ID' in dm_vendors_detail.columns:
@@ -274,7 +279,7 @@ def mostrar_tabla_vendor_detalle(vendor_df, dm_vendors_detail):
             for _, row in dm_vendors_detail.iterrows():
                 if pd.notna(row['Vendor Real ID']):
                     dm_dict[row['Vendor Real ID']] = {
-                        'Total Comprado Como DM': row['Total Comprado']
+                        'Total Comprado Como DM': row.get('Total Comprado', 0)
                     }
             
             # Rellenar información de Total Comprado Como DM
@@ -319,7 +324,6 @@ def mostrar_tabla_vendor_detalle(vendor_df, dm_vendors_detail):
         # Mostrar versión simplificada en caso de error
         st.warning(f"Error al aplicar formato avanzado: {str(e)}")
         st.dataframe(display_df_combined)
-
 
 @st.cache_data
 def load_and_process_data():
