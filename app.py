@@ -246,22 +246,21 @@ def mostrar_tabla_vendor_detalle(vendor_df, dm_vendors_detail):
         st.info("No hay datos disponibles para mostrar.")
         return
     
-    # Extraer columnas básicas
+    # Extraer columnas básicas - Eliminar las columnas no deseadas
     display_df = vendor_df[[
         'Vendor ID', 
         'Status', 
         'Valor Potencial Total',
         'Valor Convertido',
-        'Compra Mínima'
+        'Total Comprado Como DM'  # Mantenemos esta columna pero eliminamos las otras mencionadas
     ]]
     
     # Crear una copia de display_df para no modificar el original
     display_df_combined = display_df.copy()
     
-    # Añadir columnas para información de drug manufacturer por defecto
-    display_df_combined['Es Drug Manufacturer'] = 'No'
-    display_df_combined['Drug Manufacturer ID'] = None
-    display_df_combined['Total Comprado Como DM'] = 0.0
+    # Ya no añadimos estas columnas como por defecto
+    # display_df_combined['Es Drug Manufacturer'] = 'No'
+    # display_df_combined['Drug Manufacturer ID'] = None
     
     # Si dm_vendors_detail tiene datos y la columna necesaria, procesar
     if not dm_vendors_detail.empty and 'Vendor Real ID' in dm_vendors_detail.columns:
@@ -275,17 +274,13 @@ def mostrar_tabla_vendor_detalle(vendor_df, dm_vendors_detail):
             for _, row in dm_vendors_detail.iterrows():
                 if pd.notna(row['Vendor Real ID']):
                     dm_dict[row['Vendor Real ID']] = {
-                        'Es Drug Manufacturer': 'Sí',
-                        'Drug Manufacturer ID': row['Droguería/Vendor ID'],
                         'Total Comprado Como DM': row['Total Comprado']
                     }
             
-            # Rellenar información de drug manufacturers
+            # Rellenar información de Total Comprado Como DM
             for idx, row in display_df_combined.iterrows():
                 vendor_id = row['Vendor ID']
                 if vendor_id in dm_dict:
-                    #display_df_combined.at[idx, 'Es Drug Manufacturer'] = dm_dict[vendor_id]['Es Drug Manufacturer']
-                    #display_df_combined.at[idx, 'Drug Manufacturer ID'] = dm_dict[vendor_id]['Drug Manufacturer ID']
                     display_df_combined.at[idx, 'Total Comprado Como DM'] = dm_dict[vendor_id]['Total Comprado Como DM']
         except Exception as e:
             st.warning(f"Error al procesar datos de drug manufacturers: {str(e)}")
@@ -295,23 +290,19 @@ def mostrar_tabla_vendor_detalle(vendor_df, dm_vendors_detail):
         # Asegurarse de que todas las columnas necesarias existan
         required_cols = [
             'Vendor ID', 'Status', 'Valor Potencial Total', 'Valor Convertido', 
-            'Compra Mínima', 'Es Drug Manufacturer', 'Drug Manufacturer ID', 'Total Comprado Como DM'
+            'Total Comprado Como DM'
         ]
         
         for col in required_cols:
             if col not in display_df_combined.columns:
-                display_df_combined[col] = None if col in ['Drug Manufacturer ID'] else (
-                    0.0 if col in ['Valor Potencial Total', 'Valor Convertido', 'Compra Mínima', 'Total Comprado Como DM'] 
-            else
-                    'No' if col == 'Es Drug Manufacturer' else 
+                display_df_combined[col] = 0.0 if col in ['Valor Potencial Total', 'Valor Convertido', 'Total Comprado Como DM'] else (
                     'Sin Status' if col == 'Status' else ''
-                )#
+                )
         
         # Aplicar formato
         styled_df = display_df_combined.style.format({
             'Valor Potencial Total': '${:,.2f}',
             'Valor Convertido': '${:,.2f}',
-            'Compra Mínima': '${:,.2f}',
             'Total Comprado Como DM': '${:,.2f}'
         })
         
@@ -323,17 +314,11 @@ def mostrar_tabla_vendor_detalle(vendor_df, dm_vendors_detail):
             subset=['Status']
         )
         
-        styled_df = styled_df.applymap(
-            lambda x: 'background-color: #E6F3FF' if x == 'Sí' else '',
-            subset=['Es Drug Manufacturer']
-        )
-        
         st.dataframe(styled_df)
     except Exception as e:
         # Mostrar versión simplificada en caso de error
         st.warning(f"Error al aplicar formato avanzado: {str(e)}")
         st.dataframe(display_df_combined)
-
 
 
 @st.cache_data
@@ -362,7 +347,7 @@ def load_and_process_data():
         # Normalizar datos
         df_proveedores['percentage'].fillna(0, inplace=True)
         pos_geo_zones = df_pos_address[['point_of_sale_id', 'geo_zone']]
-        
+        #st.write(pos_geo_zones)
         # Reemplazar abreviaturas
         abreviaturas = {
             'B.C.S.': 'Baja California Sur', 'Qro.': 'Querétaro', 'Jal.': 'Jalisco',
@@ -527,13 +512,13 @@ def load_and_process_data():
         else:
             pos_vendor_totals = pd.DataFrame(columns=['point_of_sale_id', 'vendor_id', 'total_compra'])
         
-        return pos_vendor_totals, df_pedidos, df_productos_unificados, pos_order_stats, df_min_purchase, df_potencial_convertido, df_vendor_dm
+        return pos_vendor_totals, df_pedidos, df_productos_unificados, pos_order_stats, df_min_purchase, df_potencial_convertido, df_vendor_dm, pos_geo_zones
     
     except Exception as e:
         import traceback
         print("Error en load_and_process_data:", traceback.format_exc())
         empty_df = pd.DataFrame()
-        return empty_df, empty_df, empty_df, empty_df, empty_df, empty_df, empty_df
+        return empty_df, empty_df, empty_df, empty_df, empty_df, empty_df, empty_df, empty_df
 
 def crear_grafico_oportunidades(vendor_df, df_potencial_convertido, selected_pos, dm_vendors_detail=None):
     """Crea gráfico con potencial, potencial convertido y valores comprados como DM"""
@@ -627,7 +612,7 @@ def crear_grafico_oportunidades(vendor_df, df_potencial_convertido, selected_pos
 
 # Cargar datos
 try:    
-    pos_vendor_totals, df_original, df_productos_unificados, pos_order_stats, df_min_purchase, df_potencial_convertido, df_vendor_dm = load_and_process_data()
+    pos_vendor_totals, df_original, df_productos_unificados, pos_order_stats, df_min_purchase, df_potencial_convertido, df_vendor_dm, pos_geo_zones = load_and_process_data()
     
     # Cargar el archivo vendors_dm.csv
     df_vendor_dm = pd.DataFrame()
@@ -681,11 +666,23 @@ try:
                 st.metric("Número de Órdenes", f"{numero_ordenes:,}")
 
             # Información adicional
-            pos_info = df_original[df_original['point_of_sale_id'] == selected_pos]
-            country = pos_info.iloc[0].get('country', 'No disponible') if not pos_info.empty else 'No disponible'
-            geo_zone = pos_info.iloc[0].get('geo_zone', 'No disponible') if not pos_info.empty else 'No disponible'
-            
+            pos_info = pos_geo_zones[pos_geo_zones['point_of_sale_id'] == selected_pos]
+            pos_country = df_original[df_original['point_of_sale_id'] == selected_pos]
+
+            country = pos_country['country'].iloc[0] if not pos_country.empty and 'country' in pos_country.columns else 'No disponible'
+            geo_zone = pos_info['geo_zone'].iloc[0] if not pos_info.empty and 'geo_zone' in pos_info.columns else 'No disponible'
+
+            #geo_zone = ''
+
+           # if not pos_info.empty and 'geo_zone' in pos_info.columns:
+        # Usar el primer valor no nulo de geo_zone
+            #    geo_zones = pos_info['geo_zone'].dropna().unique()
+             #   if len(geo_zones) > 0:
+              #      geo_zone = geo_zones[0]
+
+
             info_col1, info_col2, info_col3 = st.columns(3)
+            
             with info_col1:
                 st.metric("País", country)
             with info_col2:
