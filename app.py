@@ -566,29 +566,18 @@ def crear_grafico_oportunidades(vendor_df, df_potencial_convertido, selected_pos
         marker_color='rgb(26, 118, 255)'
     ))
     
-    # Añadir barra para potencial convertido si existe
-    if not df_potencial_convertido.empty:
-        potencial_convertido_pos = df_potencial_convertido[
-            df_potencial_convertido['point_of_sale_id'] == selected_pos
-        ]
-        
-        if not potencial_convertido_pos.empty:
-            # Crear diccionario de valores convertidos
-            convertido_dict = dict(zip(
-                potencial_convertido_pos['vendor_id'],
-                potencial_convertido_pos['valor_convertido']
-            ))
-            
-            # Obtener valores convertidos para cada vendor
-            valores_convertidos = [convertido_dict.get(vid, 0) for vid in vendor_df_sorted['Vendor ID']]
-            
-            fig.add_trace(go.Bar(
-                name='Potencial Convertido',
-                x=valores_convertidos,
-                y=[str(int(vid)) for vid in vendor_df_sorted['Vendor ID']],
-                orientation='h',
-                marker_color='rgb(55, 183, 109)'
-            ))
+    # Añadir barra para valor convertido (directamente del dataframe vendor_df)
+    valores_convertidos = vendor_df_sorted['Valor Convertido'].tolist()
+    
+    # Solo añadir la barra si hay al menos un valor mayor que cero
+    if any(val > 0 for val in valores_convertidos):
+        fig.add_trace(go.Bar(
+            name='Valor Convertido',
+            x=valores_convertidos,
+            y=[str(int(vid)) for vid in vendor_df_sorted['Vendor ID']],
+            orientation='h',
+            marker_color='rgb(55, 183, 109)'  # Verde para valor convertido
+        ))
     
     # Añadir barra para valores comprados como DM
     if dm_values_dict:
@@ -609,7 +598,7 @@ def crear_grafico_oportunidades(vendor_df, df_potencial_convertido, selected_pos
     
     # Configurar layout
     fig.update_layout(
-        title='Análisis de Potencial, Potencial Convertido y Compras DM por Vendor',
+        title='Análisis de Potencial, Valor Convertido y Compras DM por Vendor',
         xaxis_title='Valor ($)',
         yaxis_title='Vendor ID',
         barmode='group',  # Mantener barras agrupadas
@@ -634,6 +623,7 @@ def crear_grafico_oportunidades(vendor_df, df_potencial_convertido, selected_pos
     fig.update_xaxes(tickformat='$,.0f')
     
     return fig
+
 
 # Cargar datos
 try:    
@@ -1004,6 +994,12 @@ try:
                             if not potencial_convertido_vendor.empty:
                                 valor_convertido = potencial_convertido_vendor['valor_convertido'].iloc[0]
                     
+                        valor_compras_ganadores = row.get('Valor Compras Ganadores', 0)
+                        if pd.notna(valor_compras_ganadores) and valor_compras_ganadores > 0:
+                # Sumamos este valor al valor convertido
+                            valor_convertido += valor_compras_ganadores
+
+
             # Obtener compra mínima
                         min_purchase_value = 0
                         if not df_min_purchase.empty and 'name' in df_min_purchase.columns and 'vendor_id' in df_min_purchase.columns:
