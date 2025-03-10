@@ -917,7 +917,7 @@ try:
             
             intersection_ordenado = intersection.sort_values(['super_catalog_id', 'precio_vendedor'], ascending=[True, True])
             intersection_sin_repetidos = intersection_ordenado.drop_duplicates('super_catalog_id')
-            st.dataframe(intersection_sin_repetidos.sort_index())
+            #st.dataframe(intersection_sin_repetidos.sort_index())
 
             intersection_percentage = (len(intersection_sin_repetidos) / len(orders_products) * 100) if orders_products else 0
             productos_conteo= intersection['super_catalog_id'].value_counts()
