@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import plotly.express as px
 from datetime import datetime
 
 # Configuración de la página
@@ -67,11 +68,29 @@ def obtener_status_vendor(vendor_id, pos_id, df_vendors_pos):
     return np.nan
 
 def obtener_geo_zone(address):
+    """
+    Extrae la zona geográfica de una dirección
+    
+    Args:
+        address: Dirección completa
+        
+    Returns:
+        Zona geográfica extraída
+    """
     partes = address.split(', ')
     return ', '.join(partes[-2:-1])
 
 def unificar_productos_sin_duplicados(df_global, df_local):
-    """Unifica productos con precios mínimos sin duplicados, priorizando productos locales"""
+    """
+    Unifica productos con precios mínimos sin duplicados, priorizando productos locales
+    
+    Args:
+        df_global: DataFrame con productos globales
+        df_local: DataFrame con productos locales
+        
+    Returns:
+        DataFrame unificado sin duplicados
+    """
     if df_global.empty and df_local.empty: return pd.DataFrame()
     if df_global.empty: return df_local.copy()
     if df_local.empty: return df_global.copy()
@@ -95,7 +114,12 @@ def unificar_productos_sin_duplicados(df_global, df_local):
     return df_unificado
 
 def load_vendors_dm():
-    """Carga y procesa el archivo vendors_dm.csv"""
+    """
+    Carga y procesa el archivo vendors_dm.csv
+    
+    Returns:
+        DataFrame con información de vendors que son drug manufacturers
+    """
     try:
         df_vendor_dm = pd.read_csv('vendors_dm.csv')
         # Asegurarse de que las columnas estén correctamente nombradas
@@ -120,7 +144,7 @@ def crear_dataframe_vendors_dm(detail_table, df_vendor_dm):
     if detail_table.empty or df_vendor_dm.empty:
         return pd.DataFrame()
     
-    # CAMBIO CLAVE: Obtener la lista de drug_manufacturer_ids en lugar de vendor_ids
+    # Obtener la lista de drug_manufacturer_ids
     dm_ids = set(df_vendor_dm['drug_manufacturer_id'].unique())
     
     # Convertir a tipo numérico para comparación adecuada
@@ -130,9 +154,6 @@ def crear_dataframe_vendors_dm(detail_table, df_vendor_dm):
     dm_vendors_detail = detail_table[detail_table['Droguería/Vendor ID'].isin(dm_ids)].copy()
     
     if not dm_vendors_detail.empty:
-        # Añadir columna que indique que son drug manufacturers
-        #dm_vendors_detail['Es Drug Manufacturer'] = 'Sí'
-        
         # Para cada fila en dm_vendors_detail, encontrar el vendor_id correspondiente
         dm_vendors_detail['Vendor Real ID'] = None
         for idx, row in dm_vendors_detail.iterrows():
@@ -142,24 +163,40 @@ def crear_dataframe_vendors_dm(detail_table, df_vendor_dm):
                 dm_vendors_detail.at[idx, 'Vendor Real ID'] = vendor_matches.iloc[0]['vendor_id']
     
     return dm_vendors_detail
-    
-    return pd.DataFrame()
 
 def calcular_potencial_convertido(df_pedidos, df_vendor_dm):
-    """Calcula el potencial convertido basado en compras reales de vendors que son drug manufacturers"""
+    """
+    Calcula el potencial convertido basado en compras reales de vendors que son drug manufacturers
+    
+    Args:
+        df_pedidos: DataFrame con información de pedidos
+        df_vendor_dm: DataFrame con relaciones vendor-drug_manufacturer
+        
+    Returns:
+        DataFrame con potencial convertido por POS y vendor
+    """
     if df_pedidos.empty or df_vendor_dm.empty: 
         return pd.DataFrame()
     
+    # Verificar columnas necesarias
     if 'vendor_id' not in df_pedidos.columns or 'vendor_id' not in df_vendor_dm.columns:
         print("Faltan columnas para calcular potencial convertido")
         return pd.DataFrame()
     
-    df_pedidos_dm = pd.merge(df_pedidos, df_vendor_dm[['vendor_id']], on='vendor_id', how='inner')
+    # Solo incluir pedidos de vendors que son drug manufacturers
+    df_pedidos_dm = pd.merge(
+        df_pedidos, 
+        df_vendor_dm[['vendor_id']],  # Solo necesitamos vendor_id para el merge
+        on='vendor_id', 
+        how='inner'
+    )
     
     if df_pedidos_dm.empty:
         return pd.DataFrame()
     
+    # Calcular total por point_of_sale_id y vendor_id
     if 'point_of_sale_id' in df_pedidos_dm.columns and 'vendor_id' in df_pedidos_dm.columns:
+        # Calcular total_compra si no existe
         if 'total_compra' not in df_pedidos_dm.columns and 'unidades_pedidas' in df_pedidos_dm.columns and 'precio_minimo' in df_pedidos_dm.columns:
             df_pedidos_dm['total_compra'] = df_pedidos_dm['unidades_pedidas'] * df_pedidos_dm['precio_minimo']
         
@@ -171,7 +208,19 @@ def calcular_potencial_convertido(df_pedidos, df_vendor_dm):
     return pd.DataFrame()
 
 def create_simple_summary(df_products, df_local_products=None, orders_total=0, products_total=0, local_products_total=0):
-    """Crea un DataFrame resumen con la información de potencial y ahorro"""
+    """
+    Crea un DataFrame resumen con la información de potencial y ahorro
+    
+    Args:
+        df_products: DataFrame con productos
+        df_local_products: DataFrame con productos locales
+        orders_total: Total de órdenes
+        products_total: Total de productos
+        local_products_total: Total de productos locales
+        
+    Returns:
+        DataFrame con el resumen
+    """
     if df_products.empty: return pd.DataFrame()
     
     pos_totals = df_products.groupby('point_of_sale_id')['valor_total_vendedor'].sum().to_dict()
@@ -241,6 +290,10 @@ def create_simple_summary(df_products, df_local_products=None, orders_total=0, p
 def mostrar_tabla_vendor_detalle(vendor_df, dm_vendors_detail):
     """
     Función para mostrar la tabla detallada de vendors con manejo seguro de columnas
+    
+    Args:
+        vendor_df: DataFrame con información de vendors
+        dm_vendors_detail: DataFrame con detalles de vendors que son drug manufacturers
     """
     if vendor_df.empty:
         st.info("No hay datos disponibles para mostrar.")
@@ -325,207 +378,64 @@ def mostrar_tabla_vendor_detalle(vendor_df, dm_vendors_detail):
         st.warning(f"Error al aplicar formato avanzado: {str(e)}")
         st.dataframe(display_df_combined)
 
-@st.cache_data
-def load_and_process_data():
-    """Función principal que procesa todos los datos necesarios"""
-    try:
-        # Cargar archivos
-        df_pos_address = pd.read_csv('pos_address.csv')
-        df_pedidos = pd.read_csv('orders_delivered_pos_vendor_geozone.csv')
-        df_proveedores = pd.read_csv('vendors_catalog.csv')
-        df_vendors_pos = pd.read_csv('vendor_pos_relations.csv')
-        df_products = pd.read_csv('top_5_productos_geozona.csv')
-        df_vendor_dm = load_vendors_dm()
-        #st.dataframe(df_vendors_pos.count())
-        try:
-            df_min_purchase = pd.read_csv('minimum_purchase.csv')
-        except FileNotFoundError:
-            df_min_purchase = pd.DataFrame(columns=['vendor_id', 'name', 'min_purchase'])
-        
-        # Procesar dirección y geo_zone
-        df_pos_address['geo_zone'] = df_pos_address['address'].apply(obtener_geo_zone)
-        
-        if 'geo_zone' in df_pedidos.columns:
-            df_pedidos = df_pedidos.drop(columns=['geo_zone'])
-            
-        # Normalizar datos
-        df_proveedores['percentage'].fillna(0, inplace=True)
-        pos_geo_zones = df_pos_address[['point_of_sale_id', 'geo_zone']]
-        #st.write(pos_geo_zones)
-        # Reemplazar abreviaturas
-        abreviaturas = {
-            'B.C.S.': 'Baja California Sur', 'Qro.': 'Querétaro', 'Jal.': 'Jalisco',
-            'Pue.': 'Puebla', 'Méx.': 'CDMX', 'Oax.': 'Oaxaca', 'Chih.': 'Chihuahua',
-            'Coah.': 'Coahuila de Zaragoza', 'Mich.': 'Michoacán de Ocampo',
-            'Ver.': 'Veracruz de Ignacio de la Llave', 'Chis.': 'Chiapas',
-            'N.L.': 'Nuevo León', 'Hgo.': 'Hidalgo', 'Tlax.': 'Tlaxcala',
-            'Tamps.': 'Tamaulipas', 'Yuc.': 'Yucatan', 'Mor.': 'Morelos',
-            'Sin.': 'Sinaloa', 'S.L.P.': 'San Luis Potosí', 'Q.R.': 'Quintana Roo',
-            'Dgo.': 'Durango', 'B.C.': 'Baja California', 'Gto.': 'Guanajuato',
-            'Camp.': 'Campeche', 'Tab.': 'Tabasco', 'Son.': 'Sonora',
-            'Gro.': 'Guerrero', 'Zac.': 'Zacatecas', 'Ags.': 'Aguascalientes',
-            'Nay.': 'Nayarit'
-        }
-        pos_geo_zones['geo_zone'] = pos_geo_zones['geo_zone'].replace(abreviaturas)
-        
-        # Separar proveedores nacionales y regionales
-        df_proveedores_nacional = df_proveedores[df_proveedores['name'] == 'México'].copy()
-        df_proveedores_regional = df_proveedores[df_proveedores['name'] != 'México'].copy()
-        
-        # Unir pedidos con zonas geográficas
-        df_pedidos_zonas = pd.merge(df_pedidos, pos_geo_zones, on='point_of_sale_id', how='left')
-        df_pedidos_zonas = df_pedidos_zonas[df_pedidos_zonas['unidades_pedidas'] > 0]
-        
-        # Asegurar nombre de columna correcto
-        #if 'droguería' in df_pedidos_zonas.columns and 'vendor_id' not in df_pedidos_zonas.columns:
-         #   df_pedidos_zonas.rename(columns={'droguería': 'vendor_id'}, inplace=True)
-        
-        # Procesar con proveedores nacionales y regionales
-        df_pedidos_proveedores_nacional = pd.merge(
-            df_pedidos_zonas, df_proveedores_nacional, on='super_catalog_id', how='inner'
-        )
-        df_pedidos_proveedores_nacional = df_pedidos_proveedores_nacional[
-            df_pedidos_proveedores_nacional['unidades_pedidas'] > 0
-        ]
-        
-        df_pedidos_proveedores_regional = pd.merge(
-            df_pedidos_zonas, df_proveedores_regional, 
-            left_on=['super_catalog_id', 'geo_zone'], right_on=['super_catalog_id', 'name'], 
-            how='inner'
-        )
-        df_pedidos_proveedores_regional = df_pedidos_proveedores_regional[
-            df_pedidos_proveedores_regional['unidades_pedidas'] > 0
-        ]
-        
-        df_pedidos_proveedores_nacional['base_price'] = df_pedidos_proveedores_nacional['base_price'].astype(float)
-#df_proveedores['precio_vendedor']=df_proveedores['precio_vendedor'].astype(float)
-        df_pedidos_proveedores_nacional['percentage'] = df_pedidos_proveedores_nacional['percentage'].astype(float)
-
-        df_pedidos_proveedores_regional['base_price'] = df_pedidos_proveedores_regional['base_price'].astype(float)
-#df_proveedores['precio_vendedor']=df_proveedores['precio_vendedor'].astype(float)
-        df_pedidos_proveedores_regional['percentage'] = df_pedidos_proveedores_regional['percentage'].astype(float)
-
-
-        df_pedidos_proveedores_nacional['precio_vendedor'] = df_pedidos_proveedores_nacional['base_price'] + (df_pedidos_proveedores_nacional['base_price'] * df_pedidos_proveedores_nacional['percentage'] / 100)
-        df_pedidos_proveedores_regional['precio_vendedor'] = df_pedidos_proveedores_regional['base_price'] + (df_pedidos_proveedores_regional['base_price'] * df_pedidos_proveedores_regional['percentage'] / 100)
-
-        # Unir dataframes
-        df_pedidos_proveedores = pd.concat([
-            df_pedidos_proveedores_regional, df_pedidos_proveedores_nacional
-        ], axis=0, ignore_index=True)
-        
-        # Verificar y corregir columnas
-       # alternative_vendor_columns = ['droguería', 'vendor_id_x', 'vendor_id_y']
-        #if 'vendor_id' not in df_pedidos_proveedores.columns:
-         #   for alt_col in alternative_vendor_columns:
-          #      if alt_col in df_pedidos_proveedores.columns:
-           #         df_pedidos_proveedores.rename(columns={alt_col: 'vendor_id'}, inplace=True)
-            #        break
-        
-        # Definir columnas para eliminar duplicados
-        subset_columns = [col for col in ['super_catalog_id', 'vendor_id', 'geo_zone'] 
-                          if col in df_pedidos_proveedores.columns]
-        
-        # Eliminar duplicados
-        df_pedidos_proveedores_unique = df_pedidos_proveedores.drop_duplicates(subset=['super_catalog_id','vendor_id_y','geo_zone'])
-        
-        # Calcular precio_total_vendedor
-        if 'precio_vendedor' in df_pedidos_proveedores_unique.columns and 'unidades_pedidas' in df_pedidos_proveedores_unique.columns:
-            df_pedidos_proveedores_unique['precio_total_vendedor'] = (
-                df_pedidos_proveedores_unique['unidades_pedidas'].astype(float) * 
-                df_pedidos_proveedores_unique['precio_vendedor'].astype(float)
-            )
-        
-        # Unir con relaciones vendor-pos
-        if 'vendor_id' in df_pedidos_proveedores_unique.columns and 'point_of_sale_id' in df_pedidos_proveedores_unique.columns:
-            df_pedidos_proveedores_unique = pd.merge(
-                df_pedidos_proveedores_unique, df_vendors_pos,
-                on=['point_of_sale_id', 'vendor_id'], how='left'
-            )
-        #st.dataframe(df_pedidos_proveedores_unique.count())
-        
-        # Corregir nombres de columnas si es necesario
-        #---------------------#
-        #for col_pair in [
-         #   ('point_of_sale_id_x', 'point_of_sale_id'),
-          #  ('super_catalog_id_x', 'super_catalog_id'),
-           # ('precio_minimo_x', 'precio_minimo')
-        #]:
-         #   if col_pair[0] in df_pedidos_proveedores_unique.columns and col_pair[1] not in df_pedidos_proveedores_unique.columns:
-          #      df_pedidos_proveedores_unique.rename(columns={col_pair[0]: col_pair[1]}, inplace=True)
-        
-        # Calcular precios mínimos locales
-        df_pedidos_proveedores_unique.rename(columns={'vendor_id':'drug_manufacturer_id', 'vendor_id_y':'vendor_id'}, inplace=True)
-        cols_needed = ['point_of_sale_id', 'super_catalog_id', 'precio_minimo']
-        if all(col in df_pedidos_proveedores_unique.columns for col in cols_needed):
-            min_prices = (df_pedidos_proveedores_unique
-                         .groupby(['point_of_sale_id', 'super_catalog_id'])['precio_minimo']
-                         .min()
-                         .reset_index())
-            min_prices.columns = ['point_of_sale_id', 'super_catalog_id', 'precio_minimo_orders']
-            
-            # Unir para comparar precios
-            df_con_precios_minimos_local = pd.merge(
-                df_pedidos_proveedores_unique, min_prices,
-                on=['point_of_sale_id', 'super_catalog_id'], how='left'
-            )
-            # Identificar productos ganadores locales
-            if 'precio_vendedor' in df_con_precios_minimos_local.columns:
-                df_productos_ganadores_local = df_con_precios_minimos_local[
-                    df_con_precios_minimos_local['precio_minimo_orders'] > df_con_precios_minimos_local['precio_vendedor']
-                ]
-                
-                # Asegurar que tenga valor_total_vendedor
-                if 'valor_total_vendedor' not in df_productos_ganadores_local.columns and 'unidades_pedidas' in df_productos_ganadores_local.columns:
-                    df_productos_ganadores_local['valor_total_vendedor'] = (
-                        df_productos_ganadores_local['unidades_pedidas'].astype(float) * 
-                        df_productos_ganadores_local['precio_vendedor'].astype(float)
-                    )
-            else:
-                df_productos_ganadores_local = pd.DataFrame()
-        #### FILTRO PRUEBA PRODUCTOS GANADORES
-        #st.dataframe(df_productos_ganadores_local[(df_productos_ganadores_local['vendor_id_x']==10269) & (df_productos_ganadores_local['point_of_sale_id'] == 1409)].drop_duplicates('super_catalog_id'))        # Unificar productos globales y locales sin duplicados
-
-        #else:
-        #    df_productos_ganadores_local = pd.DataFrame()
-        df_productos_unificados = unificar_productos_sin_duplicados(df_products, df_productos_ganadores_local)
-        
-        # Calcular potencial convertido
-        df_potencial_convertido = calcular_potencial_convertido(df_pedidos, df_vendor_dm)
-        
-        # Calcular métricas para visualización
-        df_orders = df_pedidos.copy()
-        
-        # Agregar total_compra si no existe
-        if 'total_compra' not in df_orders.columns and 'unidades_pedidas' in df_orders.columns and 'precio_minimo' in df_orders.columns:
-            df_orders['total_compra'] = df_orders['unidades_pedidas'] * df_orders['precio_minimo']
-        
-        # Calcular estadísticas por POS
-        if all(col in df_orders.columns for col in ['point_of_sale_id', 'order_id', 'total_compra']):
-            order_totals = df_orders.groupby(['point_of_sale_id', 'order_id'])['total_compra'].sum().reset_index()
-            pos_order_stats = order_totals.groupby('point_of_sale_id').agg({
-                'total_compra': ['mean', 'count']
-            }).reset_index()
-            pos_order_stats.columns = ['point_of_sale_id', 'promedio_por_orden', 'numero_ordenes']
-        else:
-            pos_order_stats = pd.DataFrame(columns=['point_of_sale_id', 'promedio_por_orden', 'numero_ordenes'])
-        
-        # Calcular totales por vendor
-        if all(col in df_orders.columns for col in ['point_of_sale_id', 'vendor_id', 'total_compra']):
-            pos_vendor_totals = df_orders.groupby(['point_of_sale_id', 'vendor_id'])['total_compra'].sum().reset_index()
-        else:
-            pos_vendor_totals = pd.DataFrame(columns=['point_of_sale_id', 'vendor_id', 'total_compra'])
-        
-        return pos_vendor_totals, df_pedidos, df_productos_unificados, pos_order_stats, df_min_purchase, df_potencial_convertido, df_vendor_dm, pos_geo_zones
+def agregar_columna_clasificacion(df):
+    """
+    Agrega una columna de clasificación según las siguientes reglas:
+    1. Verifica si el precio_minimo es menor que el precio_vendedor para cada producto en cada orden
+    2. Si hay múltiples registros del mismo producto en una orden, identifica el que tiene el precio_vendedor más bajo
     
-    except Exception as e:
-        import traceback
-        print("Error en load_and_process_data:", traceback.format_exc())
-        empty_df = pd.DataFrame()
-        return empty_df, empty_df, empty_df, empty_df, empty_df, empty_df, empty_df, empty_df
+    Args:
+        df: DataFrame con las columnas order_id, super_catalog_id, precio_minimo, precio_vendedor
+        
+    Returns:
+        DataFrame con la nueva columna 'clasificacion'
+    """
+    # Crear una copia para no modificar el original
+    result_df = df.copy()
+    
+    # Inicializar la columna de clasificación
+    result_df['clasificacion'] = ""
+    
+    # Agrupar por order_id y super_catalog_id
+    grupos = result_df.groupby(['order_id', 'super_catalog_id'])
+    
+    for (order_id, product_id), group in grupos:
+        # Obtener el precio mínimo del producto (debe ser el mismo para todos los registros del grupo)
+        precio_minimo = group['precio_minimo'].iloc[0]
+        
+        # Encontrar el precio_vendedor mínimo para este producto y orden
+        min_precio_vendedor = group['precio_vendedor'].min()
+        
+        # Indices de registros del grupo
+        indices = group.index
+        
+        for idx in indices:
+            precio_vendedor = result_df.loc[idx, 'precio_vendedor']
+            
+            # Aplicar las reglas de clasificación
+            if precio_minimo < precio_vendedor:
+                result_df.loc[idx, 'clasificacion'] = "Precio droguería minimo"
+            else:
+                if precio_vendedor == min_precio_vendedor:
+                    result_df.loc[idx, 'clasificacion'] = "Precio vendor minimo"
+                else:
+                    result_df.loc[idx, 'clasificacion'] = "Precio vendor no minimo"
+    
+    return result_df
 
 def crear_grafico_oportunidades(vendor_df, df_potencial_convertido, selected_pos, dm_vendors_detail=None):
-    """Crea gráfico con potencial, potencial convertido y valores comprados como DM"""
+    """
+    Crea gráfico con potencial, potencial convertido y valores comprados como DM
+    
+    Args:
+        vendor_df: DataFrame con información de vendors
+        df_potencial_convertido: DataFrame con potencial convertido
+        selected_pos: ID del POS seleccionado
+        dm_vendors_detail: DataFrame con detalles de vendors que son drug manufacturers
+        
+    Returns:
+        Objeto figura de Plotly
+    """
     if vendor_df.empty:
         return go.Figure()
     
@@ -613,10 +523,330 @@ def crear_grafico_oportunidades(vendor_df, df_potencial_convertido, selected_pos
     
     return fig
 
+def actualizar_vendor_analysis(productos_pos, df_vendors_pos, orders_pos, df_potencial_convertido, 
+                         dm_vendors_detail, selected_pos, geo_zone, df_min_purchase, 
+                         intersection_sin_repetidos_winners):
+    """
+    Función principal para generar el análisis de vendors para un POS específico
+    
+    Args:
+        productos_pos: DataFrame con productos potenciales para el POS
+        df_vendors_pos: DataFrame con relaciones vendor-POS
+        orders_pos: DataFrame con órdenes del POS
+        df_potencial_convertido: DataFrame con potencial convertido
+        dm_vendors_detail: DataFrame con detalles de vendors que son drug manufacturers
+        selected_pos: ID del POS seleccionado
+        geo_zone: Zona geográfica del POS
+        df_min_purchase: DataFrame con información de compra mínima
+        intersection_sin_repetidos_winners: DataFrame con productos ganadores (precio vendor mínimo)
+        
+    Returns:
+        DataFrame con análisis de vendors
+    """
+    vendor_analysis = []
+    processed_vendors = set()
+    
+    # Crear diccionario para almacenar los valores potenciales por vendor
+    # basados en los productos ganadores (precio vendor mínimo)
+    potenciales_por_vendor = {}
+    
+    # Calcular el potencial total por vendor basado en intersection_sin_repetidos_winners
+    if not intersection_sin_repetidos_winners.empty and 'vendor_id' in intersection_sin_repetidos_winners.columns:
+        for vendor_id in intersection_sin_repetidos_winners['vendor_id'].unique():
+            vendor_products = intersection_sin_repetidos_winners[intersection_sin_repetidos_winners['vendor_id'] == vendor_id]
+            valor_potencial = 0
+            if 'precio_total_vendedor' in vendor_products.columns:
+                valor_potencial = vendor_products['precio_total_vendedor'].sum()
+            potenciales_por_vendor[vendor_id] = valor_potencial
+    
+    # PARTE 1: PRIMERO AÑADIR VENDORS QUE SON DRUG MANUFACTURERS
+    if not dm_vendors_detail.empty and 'Vendor Real ID' in dm_vendors_detail.columns:
+        for _, row in dm_vendors_detail.iterrows():
+            if pd.notna(row.get('Vendor Real ID')):
+                vendor_id = row['Vendor Real ID']
+                
+                # Obtener status
+                vendor_status = obtener_status_vendor(vendor_id, selected_pos, df_vendors_pos)
+                
+                # Calcular valor potencial desde los productos ganadores
+                potential_value = potenciales_por_vendor.get(vendor_id, 0)
+                
+                # Obtener valor DM comprado directamente de dm_vendors_detail
+                comprado_como_dm = row.get('Total Comprado', 0)
+                
+                # Calcular valor convertido para drug manufacturers
+                # Solo los drug manufacturers deben tener valores convertidos
+                valor_convertido = 0
+                valor_compras_ganadores = row.get('Valor Compras Ganadores', 0)
+                
+                if pd.notna(valor_compras_ganadores) and valor_compras_ganadores > 0:
+                    # Para drug manufacturers, el valor convertido es el valor comprado como DM
+                    valor_convertido = valor_compras_ganadores
+                    
+                    # IMPORTANTE: Restar el valor convertido del potencial para no duplicar
+                    potential_value = max(0, potential_value - valor_convertido)
+                
+                # Obtener compra mínima
+                min_purchase_value = 0
+                if not df_min_purchase.empty and 'name' in df_min_purchase.columns and 'vendor_id' in df_min_purchase.columns:
+                    min_purchase_info = df_min_purchase[
+                        (df_min_purchase['vendor_id'] == vendor_id) & 
+                        (df_min_purchase['name'] == geo_zone)
+                    ]
+                    if not min_purchase_info.empty:
+                        min_purchase_value = min_purchase_info['min_purchase'].iloc[0]
+                
+                vendor_analysis.append({
+                    'Vendor ID': vendor_id,
+                    'Status': get_status_description(vendor_status),
+                    'Valor Potencial Total': potential_value,
+                    'Valor Convertido': valor_convertido,
+                    'Compra Mínima': min_purchase_value,
+                    'Es Drug Manufacturer': 'Sí',
+                    'Drug Manufacturer ID': row.get('Droguería/Vendor ID'),
+                    'Total Comprado Como DM': comprado_como_dm
+                })
+                
+                processed_vendors.add(vendor_id)
+    
+    # PARTE 2: AÑADIR VENDORS REGULARES (NO DRUG MANUFACTURERS)
+    # Usamos la información de intersection_sin_repetidos_winners para obtener los vendors relevantes
+    if not intersection_sin_repetidos_winners.empty and 'vendor_id' in intersection_sin_repetidos_winners.columns:
+        unique_vendors = intersection_sin_repetidos_winners['vendor_id'].unique()
+        
+        for vendor_id in unique_vendors:
+            # Omitir vendors ya procesados
+            if vendor_id in processed_vendors:
+                continue
+                
+            # Obtener status
+            vendor_status = obtener_status_vendor(vendor_id, selected_pos, df_vendors_pos)
+            
+            # Obtener compra mínima
+            min_purchase_value = 0
+            if not df_min_purchase.empty and 'name' in df_min_purchase.columns and 'vendor_id' in df_min_purchase.columns:
+                min_purchase_info = df_min_purchase[
+                    (df_min_purchase['vendor_id'] == vendor_id) & 
+                    (df_min_purchase['name'] == geo_zone)
+                ]
+                if not min_purchase_info.empty:
+                    min_purchase_value = min_purchase_info['min_purchase'].iloc[0]
+            
+            # Calcular valor potencial desde los productos ganadores
+            potential_value = potenciales_por_vendor.get(vendor_id, 0)
+            
+            # Para vendors regulares (no drug manufacturers), no hay valor convertido
+            valor_convertido = 0
+            
+            # Agregar a la lista de análisis
+            vendor_analysis.append({
+                'Vendor ID': vendor_id,
+                'Status': get_status_description(vendor_status),
+                'Valor Potencial Total': potential_value,
+                'Valor Convertido': valor_convertido,  # Para vendors regulares, siempre es 0
+                'Compra Mínima': min_purchase_value,
+                'Es Drug Manufacturer': 'No',
+                'Drug Manufacturer ID': None,
+                'Total Comprado Como DM': 0
+            })
+            
+            processed_vendors.add(vendor_id)
+    
+    # Crear DataFrame final
+    if vendor_analysis:
+        vendor_df = pd.DataFrame(vendor_analysis)
+        return vendor_df
+    else:
+        return pd.DataFrame()
+def generar_insight_simple(vendor_df, selected_pos):
+    """
+    Genera un DataFrame simple con relaciones POS-vendor que tienen 
+    un valor potencial total superior a $20,000.
+    
+    Args:
+        vendor_df: DataFrame con análisis de vendors
+        selected_pos: ID del punto de venta seleccionado
+        
+    Returns:
+        DataFrame con relaciones POS-vendor y valor potencial
+    """
+    if vendor_df.empty:
+        return pd.DataFrame()
+    
+    # Filtrar vendors con potencial mayor a $20,000
+    oportunidades_alto_valor = vendor_df[vendor_df['Valor Potencial Total'] > 20000].copy()
+    
+    if oportunidades_alto_valor.empty:
+        return pd.DataFrame()
+    
+    # Crear DataFrame simplificado
+    df_simple = pd.DataFrame({
+        'POS ID': selected_pos,
+        'Vendor ID': oportunidades_alto_valor['Vendor ID'],
+        'Status': oportunidades_alto_valor['Status'],
+        'Valor Potencial': oportunidades_alto_valor['Valor Potencial Total']
+    })
+    
+    # Ordenar por Valor Potencial descendente
+    df_simple = df_simple.sort_values('Valor Potencial', ascending=False)
+    
+    return df_simple
 
-# Cargar datos
+@st.cache_data
+def load_and_process_data():
+    """Función principal que procesa todos los datos necesarios"""
+    try:
+        # Cargar archivos
+        df_pos_address = pd.read_csv('pos_address.csv')
+        df_pedidos = pd.read_csv('orders_delivered_pos_vendor_geozone.csv')
+        df_proveedores = pd.read_csv('vendors_catalog.csv')
+        df_vendors_pos = pd.read_csv('vendor_pos_relations.csv')
+        df_products = pd.read_csv('top_5_productos_geozona.csv')
+        df_vendor_dm = load_vendors_dm()
+        
+        try:
+            df_min_purchase = pd.read_csv('minimum_purchase.csv')
+        except FileNotFoundError:
+            df_min_purchase = pd.DataFrame(columns=['vendor_id', 'name', 'min_purchase'])
+        
+        # Procesar dirección y geo_zone
+        df_pos_address['geo_zone'] = df_pos_address['address'].apply(obtener_geo_zone)
+        
+        if 'geo_zone' in df_pedidos.columns:
+            df_pedidos = df_pedidos.drop(columns=['geo_zone'])
+            
+        # Normalizar datos
+        df_proveedores['percentage'].fillna(0, inplace=True)
+        pos_geo_zones = df_pos_address[['point_of_sale_id', 'geo_zone']]
+        
+        # Reemplazar abreviaturas
+        abreviaturas = {
+            'B.C.S.': 'Baja California Sur', 'Qro.': 'Querétaro', 'Jal.': 'Jalisco',
+            'Pue.': 'Puebla', 'Méx.': 'CDMX', 'Oax.': 'Oaxaca', 'Chih.': 'Chihuahua',
+            'Coah.': 'Coahuila de Zaragoza', 'Mich.': 'Michoacán de Ocampo',
+            'Ver.': 'Veracruz de Ignacio de la Llave', 'Chis.': 'Chiapas',
+            'N.L.': 'Nuevo León', 'Hgo.': 'Hidalgo', 'Tlax.': 'Tlaxcala',
+            'Tamps.': 'Tamaulipas', 'Yuc.': 'Yucatan', 'Mor.': 'Morelos',
+            'Sin.': 'Sinaloa', 'S.L.P.': 'San Luis Potosí', 'Q.R.': 'Quintana Roo',
+            'Dgo.': 'Durango', 'B.C.': 'Baja California', 'Gto.': 'Guanajuato',
+            'Camp.': 'Campeche', 'Tab.': 'Tabasco', 'Son.': 'Sonora',
+            'Gro.': 'Guerrero', 'Zac.': 'Zacatecas', 'Ags.': 'Aguascalientes',
+            'Nay.': 'Nayarit'
+        }
+        pos_geo_zones['geo_zone'] = pos_geo_zones['geo_zone'].replace(abreviaturas)
+        
+        # Separar proveedores nacionales y regionales
+        df_proveedores_nacional = df_proveedores[df_proveedores['name'] == 'México'].copy()
+        df_proveedores_regional = df_proveedores[df_proveedores['name'] != 'México'].copy()
+        
+        # Unir pedidos con zonas geográficas
+        df_pedidos_zonas = pd.merge(df_pedidos, pos_geo_zones, on='point_of_sale_id', how='left')
+        df_pedidos_zonas = df_pedidos_zonas[df_pedidos_zonas['unidades_pedidas'] > 0]
+        
+        # Procesar con proveedores nacionales y regionales
+        df_pedidos_proveedores_nacional = pd.merge(
+            df_pedidos_zonas, df_proveedores_nacional, on='super_catalog_id', how='inner'
+        )
+        df_pedidos_proveedores_nacional = df_pedidos_proveedores_nacional[
+            df_pedidos_proveedores_nacional['unidades_pedidas'] > 0
+        ]
+        
+        df_pedidos_proveedores_regional = pd.merge(
+            df_pedidos_zonas, df_proveedores_regional, 
+            left_on=['super_catalog_id', 'geo_zone'], right_on=['super_catalog_id', 'name'], 
+            how='inner'
+        )
+        df_pedidos_proveedores_regional = df_pedidos_proveedores_regional[
+            df_pedidos_proveedores_regional['unidades_pedidas'] > 0
+        ]
+        
+        # Convertir tipos de datos para cálculos correctos
+        df_pedidos_proveedores_nacional['base_price'] = df_pedidos_proveedores_nacional['base_price'].astype(float)
+        df_pedidos_proveedores_nacional['percentage'] = df_pedidos_proveedores_nacional['percentage'].astype(float)
+
+        df_pedidos_proveedores_regional['base_price'] = df_pedidos_proveedores_regional['base_price'].astype(float)
+        df_pedidos_proveedores_regional['percentage'] = df_pedidos_proveedores_regional['percentage'].astype(float)
+
+        # Calcular precio_vendedor
+        df_pedidos_proveedores_nacional['precio_vendedor'] = df_pedidos_proveedores_nacional['base_price'] + (df_pedidos_proveedores_nacional['base_price'] * df_pedidos_proveedores_nacional['percentage'] / 100)
+        df_pedidos_proveedores_regional['precio_vendedor'] = df_pedidos_proveedores_regional['base_price'] + (df_pedidos_proveedores_regional['base_price'] * df_pedidos_proveedores_regional['percentage'] / 100)
+
+        # Unir dataframes
+        df_pedidos_proveedores = pd.concat([
+            df_pedidos_proveedores_regional, df_pedidos_proveedores_nacional
+        ], axis=0, ignore_index=True)
+        
+        # Calcular precio_total_vendedor
+        if 'precio_vendedor' in df_pedidos_proveedores.columns and 'unidades_pedidas' in df_pedidos_proveedores.columns:
+            df_pedidos_proveedores['precio_total_vendedor'] = (
+                df_pedidos_proveedores['unidades_pedidas'].astype(float) * 
+                df_pedidos_proveedores['precio_vendedor'].astype(float)
+            )
+        
+        # Unir con relaciones vendor-pos
+        if 'vendor_id' in df_pedidos_proveedores.columns and 'point_of_sale_id' in df_pedidos_proveedores.columns:
+            df_pedidos_proveedores = pd.merge(
+                df_pedidos_proveedores, df_vendors_pos,
+                on=['point_of_sale_id', 'vendor_id'], how='left'
+            )
+        
+        # Corregir nombres de columnas
+        df_pedidos_proveedores.rename(columns={'vendor_id':'drug_manufacturer_id', 'vendor_id_y':'vendor_id'}, inplace=True)
+        
+        # Calcular precios mínimos locales
+        cols_needed = ['point_of_sale_id', 'super_catalog_id', 'precio_minimo']
+        if all(col in df_pedidos_proveedores.columns for col in cols_needed):
+            min_prices = (df_pedidos_proveedores
+                         .groupby(['point_of_sale_id', 'order_id','super_catalog_id'])['precio_minimo']
+                         .min()
+                         .reset_index())
+            min_prices.columns = ['point_of_sale_id','order_id', 'super_catalog_id', 'precio_minimo_orders']
+            
+            # Unir para comparar precios
+            df_con_precios_minimos_local = pd.merge(
+                df_pedidos_proveedores, min_prices,
+                on=['point_of_sale_id', 'super_catalog_id','order_id'], how='left'
+            )
+            
+            # Clasificar productos
+            df_clasificado = agregar_columna_clasificacion(df_con_precios_minimos_local)
+        else:
+            df_clasificado = pd.DataFrame()
+        
+        # Calcular métricas para visualización
+        df_orders = df_pedidos.copy()
+        
+        # Agregar total_compra si no existe
+        if 'total_compra' not in df_orders.columns and 'unidades_pedidas' in df_orders.columns and 'precio_minimo' in df_orders.columns:
+            df_orders['total_compra'] = df_orders['unidades_pedidas'] * df_orders['precio_minimo']
+        
+        # Calcular estadísticas por POS
+        if all(col in df_orders.columns for col in ['point_of_sale_id', 'order_id', 'total_compra']):
+            order_totals = df_orders.groupby(['point_of_sale_id', 'order_id'])['total_compra'].sum().reset_index()
+            pos_order_stats = order_totals.groupby('point_of_sale_id').agg({
+                'total_compra': ['mean', 'count']
+            }).reset_index()
+            pos_order_stats.columns = ['point_of_sale_id', 'promedio_por_orden', 'numero_ordenes']
+        else:
+            pos_order_stats = pd.DataFrame(columns=['point_of_sale_id', 'promedio_por_orden', 'numero_ordenes'])
+        
+        # Calcular totales por vendor
+        if all(col in df_orders.columns for col in ['point_of_sale_id', 'vendor_id', 'total_compra']):
+            pos_vendor_totals = df_orders.groupby(['point_of_sale_id', 'vendor_id'])['total_compra'].sum().reset_index()
+        else:
+            pos_vendor_totals = pd.DataFrame(columns=['point_of_sale_id', 'vendor_id', 'total_compra'])
+        
+        return pos_vendor_totals, df_pedidos, pos_order_stats, df_min_purchase, df_vendor_dm, pos_geo_zones, df_clasificado
+    
+    except Exception as e:
+        import traceback
+        print("Error en load_and_process_data:", traceback.format_exc())
+        empty_df = pd.DataFrame()
+        return empty_df, empty_df, empty_df, empty_df, empty_df, empty_df, empty_df
+
+# Código principal
 try:    
-    pos_vendor_totals, df_original, df_productos_unificados, pos_order_stats, df_min_purchase, df_potencial_convertido, df_vendor_dm, pos_geo_zones = load_and_process_data()
+    pos_vendor_totals, df_original, pos_order_stats, df_min_purchase, df_vendor_dm, pos_geo_zones, df_clasificado = load_and_process_data()
     
     # Cargar el archivo vendors_dm.csv
     df_vendor_dm = pd.DataFrame()
@@ -628,14 +858,13 @@ try:
     except Exception as e:
         print(f"Error al cargar vendors_dm.csv: {e}")
 
-# Cargar el archivo vendor_pos_relations.csv
+    # Cargar el archivo vendor_pos_relations.csv
     df_vendors_pos = pd.DataFrame()
     try:
         df_vendors_pos = pd.read_csv('vendor_pos_relations.csv')
     except Exception as e:
         print(f"Error al cargar vendor_pos_relations.csv: {e}")
         st.warning("No se pudo cargar la información de relaciones vendor-pos. Algunas funcionalidades podrían estar limitadas.")
-
 
     # Filtro de punto de venta
     st.header("Análisis Individual de POS")
@@ -676,15 +905,6 @@ try:
             country = pos_country['country'].iloc[0] if not pos_country.empty and 'country' in pos_country.columns else 'No disponible'
             geo_zone = pos_info['geo_zone'].iloc[0] if not pos_info.empty and 'geo_zone' in pos_info.columns else 'No disponible'
 
-            #geo_zone = ''
-
-           # if not pos_info.empty and 'geo_zone' in pos_info.columns:
-        # Usar el primer valor no nulo de geo_zone
-            #    geo_zones = pos_info['geo_zone'].dropna().unique()
-             #   if len(geo_zones) > 0:
-              #      geo_zone = geo_zones[0]
-
-
             info_col1, info_col2, info_col3 = st.columns(3)
             
             with info_col1:
@@ -697,7 +917,7 @@ try:
             # Detalle de compras
             st.subheader("Detalle de Compras por Droguería/Vendor")
             if not pos_data.empty:
-                pos_data['porcentaje'] = (pos_data['total_compra'] / pos_data['total_compra'].sum()) * 100        
+                pos_data['porcentaje'] = (pos_data['total_compra'] / pos_data['total_compra'].sum()) * 100    
                 detail_table = pos_data.copy()
                 detail_table.columns = ['POS ID', 'Droguería/Vendor ID', 'Total Comprado', 'Porcentaje']
                 detail_table = detail_table.round({'Porcentaje': 2})
@@ -708,81 +928,68 @@ try:
                         'Porcentaje': '{:.2f}%'
                     })
                 )
+
                 orders_pos = df_original[df_original['point_of_sale_id'] == selected_pos]
-                productos_pos = df_productos_unificados[df_productos_unificados['point_of_sale_id'] == selected_pos] if 'point_of_sale_id' in df_productos_unificados.columns else pd.DataFrame()
-            
+                productos_pos = df_clasificado[df_clasificado['point_of_sale_id'] == selected_pos] if 'point_of_sale_id' in df_clasificado.columns else pd.DataFrame()
+                df_vendor_winners = productos_pos[df_clasificado['clasificacion'] == 'Precio droguería minimo']
+                
                 # NUEVO CÓDIGO: Mostrar tabla de vendors que son drug manufacturers
                 st.subheader("Ventas de Distribuidores que son Vendors")
                 if not df_vendor_dm.empty:  
                     dm_vendors_detail = crear_dataframe_vendors_dm(detail_table, df_vendor_dm)
                     if not dm_vendors_detail.empty:
                         try:
-        # Obtener IDs de fabricantes (drug_manufacturer_ids)
+                            # Obtener IDs de fabricantes (drug_manufacturer_ids)
                             dm_ids = set(df_vendor_dm['drug_manufacturer_id'].unique())
-                            #st.dataframe(dm_ids)
 
-        # Obtener la lista de drug_manufacturer_ids de la tabla de detalle
+                            # Obtener la lista de drug_manufacturer_ids de la tabla de detalle
                             dm_detail_ids = set(dm_vendors_detail['Droguería/Vendor ID'].unique())
-                            #st.dataframe(dm_detail_ids)
-        # Convertir vendor_id a numérico para correcta comparación en orders_pos
-                            orders_pos['vendor_id'] = pd.to_numeric(orders_pos['vendor_id'], errors='coerce')
-        
-        # Filtrar órdenes que corresponden a drug_manufacturers
+                            
+                            # Filtrar órdenes que corresponden a drug_manufacturers
                             dm_compras = orders_pos[orders_pos['vendor_id'].isin(dm_detail_ids)].copy()
-                            #st.dataframe(dm_compras)
-        # Total comprado a drug manufacturers
+                            
+                            # Total comprado a drug manufacturers
                             total_comprado_dm = dm_vendors_detail['Total Comprado'].sum()
-                            #st.write(total_comprado_dm)
-        # Aquí es donde calculamos las compras que son productos ganadores
-        # Convertir vendor_id a numérico en productos_pos
-                            productos_pos['vendor_id'] = pd.to_numeric(productos_pos['vendor_id'], errors='coerce')
-        
-        # Filtrar productos ganadores de este POS
-                            productos_ganadores_pos = productos_pos[productos_pos['point_of_sale_id'] == selected_pos].copy()
-                            #st.dataframe(productos_ganadores_pos)
-        # El merge debe hacerse por super_catalog_id y point_of_sale_id, y luego verificar manualmente si vendor_id coincide
+                            
+                            # Filtrar productos ganadores
+                            productos_ganadores_pos = df_vendor_winners[productos_pos['point_of_sale_id'] == selected_pos].copy()
+                            
+                            # Merge para encontrar productos ganadores que son de drug manufacturers
                             dm_compras_ganadores = pd.merge(
-                            dm_compras, 
-                            productos_ganadores_pos,
-                            on=['super_catalog_id', 'point_of_sale_id'],
-                            suffixes=('_comp', '_gan'),
-                            how='inner'
+                                dm_compras, 
+                                productos_ganadores_pos,
+                                on=['super_catalog_id', 'point_of_sale_id'],
+                                suffixes=('_comp', '_gan'),
+                                how='inner'
                             ).drop_duplicates('super_catalog_id')
-                            #st.write(dm_compras_ganadores['valor_vendedor_gan'].sum())
 
-        # Verificar que los vendor_ids coincidan (compra hecha al mismo vendor que tiene mejor precio)
-                            #if 'vendor_id_comp' in dm_compras_ganadores.columns: #and 'vendor_id_gan' in dm_compras_ganadores.columns:
-                             #   dm_compras_ganadores = dm_compras_ganadores[
-                              #  dm_compras_ganadores['vendor_id_comp'] == dm_compras_ganadores['vendor_id_gan']
-                            #]
-
-        # Calcular el valor total de compras a DMs que son productos ganadores
+                            # Calcular el valor total de compras a DMs que son productos ganadores
                             valor_dm_compras_ganadores = 0
                             if not dm_compras_ganadores.empty:
                                 if 'valor_total_vendedor' in dm_compras_ganadores.columns:
                                     valor_dm_compras_ganadores = dm_compras_ganadores['valor_total_vendedor'].sum()
-                                if 'unidades_pedidas' in dm_compras_ganadores.columns and 'precio_minimo' in dm_compras_ganadores.columns:
+                                elif 'unidades_pedidas' in dm_compras_ganadores.columns and 'precio_minimo' in dm_compras_ganadores.columns:
                                     valor_dm_compras_ganadores = (dm_compras_ganadores['unidades_pedidas'] * dm_compras_ganadores['precio_minimo']).sum()
                                 elif 'valor_vendedor_gan' in dm_compras_ganadores.columns:
                                     valor_dm_compras_ganadores = dm_compras_ganadores['valor_vendedor_gan'].sum()
-                            #st.write(valor_dm_compras_ganadores)
-        # Calcular porcentaje
+                            
+                            # Calcular porcentaje
                             porcentaje_dm_compras_ganadores = (valor_dm_compras_ganadores / total_comprado_dm * 100) if total_comprado_dm > 0 else 0
-        
-        # Agregar esta información al dataframe de dm_vendors_detail
+                        
+                            # Agregar esta información al dataframe de dm_vendors_detail
                             dm_vendors_detail['Valor Compras Ganadores'] = 0.0
                             dm_vendors_detail['% Compras Ganadores'] = 0.0
-                    
+                            
                             vendor_valores = {}
 
-        # Calcular valor para cada distribuidor específico
+                            # Calcular valor para cada distribuidor específico
                             for _, row in dm_vendors_detail.iterrows():
                                 dm_id = row['Droguería/Vendor ID']
-            
-            # Filtrar compras de este distribuidor específico que son productos ganadores
+                                
+                                # Filtrar compras de este distribuidor específico que son productos ganadores
                                 vendor_compras_ganadores = dm_compras_ganadores[dm_compras_ganadores['vendor_id_comp'] == dm_id] if not dm_compras_ganadores.empty else pd.DataFrame()
-            
-            # Calcular el valor
+                                
+                                # Calcular el valor
                                 vendor_valor = 0
                                 if not vendor_compras_ganadores.empty:
                                     if 'valor_total_vendedor' in vendor_compras_ganadores.columns:
@@ -791,7 +998,7 @@ try:
                                         vendor_valor = vendor_compras_ganadores['valor_vendedor_gan'].sum()
                                     elif 'valor_vendedor_comp' in vendor_compras_ganadores.columns:
                                         vendor_valor = vendor_compras_ganadores['valor_vendedor_comp'].sum()
-                
+                                
                                 vendor_valores[dm_id] = vendor_valor
 
                             sum_vendor_valores = sum(vendor_valores.values())
@@ -799,58 +1006,55 @@ try:
                             for idx, row in dm_vendors_detail.iterrows():
                                 dm_id = row['Droguería/Vendor ID']
                                 vendor_valor = vendor_valores[dm_id]
-                
-                # Si la suma total de vendor_valores es aproximadamente igual al valor_dm_compras_ganadores,
-                # usamos los valores individuales calculados
+                                
+                                # Si la suma total de vendor_valores es aproximadamente igual al valor_dm_compras_ganadores,
+                                # usamos los valores individuales calculados
                                 if abs(sum_vendor_valores - valor_dm_compras_ganadores) < 0.01 * valor_dm_compras_ganadores:  # 1% de tolerancia
                                     dm_vendors_detail.at[idx, 'Valor Compras Ganadores'] = vendor_valor
                                 else:
-                    # Si hay una discrepancia significativa, distribuimos el valor total proporcionalmente
-                    # basado en el porcentaje de compras de cada vendor
+                                    # Si hay una discrepancia significativa, distribuimos el valor total proporcionalmente
+                                    # basado en el porcentaje de compras de cada vendor
                                     if sum_vendor_valores > 0:
                                         factor = valor_dm_compras_ganadores / sum_vendor_valores
                                         dm_vendors_detail.at[idx, 'Valor Compras Ganadores'] = vendor_valor * factor
                                     else:
-                        # Si no se puede distribuir proporcionalmente, distribuir equitativamente
+                                        # Si no se puede distribuir proporcionalmente, distribuir equitativamente
                                         dm_vendors_detail.at[idx, 'Valor Compras Ganadores'] = valor_dm_compras_ganadores / len(dm_vendors_detail)
-                
-                # Calcular el porcentaje respecto al total comprado para este vendor
+                                
+                                # Calcular el porcentaje respecto al total comprado para este vendor
                                 if row['Total Comprado'] > 0:
                                     dm_vendors_detail.at[idx, '% Compras Ganadores'] = (dm_vendors_detail.at[idx, 'Valor Compras Ganadores'] / row['Total Comprado'] * 100)
-            
-            # Verificar que la suma de 'Valor Compras Ganadores' coincida con valor_dm_compras_ganadores
+                            
+                            # Verificar que la suma de 'Valor Compras Ganadores' coincida con valor_dm_compras_ganadores
                             total_calculado = dm_vendors_detail['Valor Compras Ganadores'].sum()
                             if abs(total_calculado - valor_dm_compras_ganadores) > 0.01 * valor_dm_compras_ganadores:  # 1% de tolerancia
                                 st.warning(f"Discrepancia en los cálculos: Valor DM total ({valor_dm_compras_ganadores:.2f}) ≠ Suma de valores individuales ({total_calculado:.2f})")
-            
-
-
+                            
                             st.dataframe(
-                            dm_vendors_detail.style.format({
-                'Total Comprado': '${:,.2f}',
-                'Porcentaje': '{:.2f}%',
-                'Valor Compras Ganadores': '${:,.2f}',
-                '% Compras Ganadores': '{:.2f}%'
-                    })
-                    )
-        
-        # Mostrar métricas de resumen
+                                dm_vendors_detail.style.format({
+                                    'Total Comprado': '${:,.2f}',
+                                    'Porcentaje': '{:.2f}%',
+                                    'Valor Compras Ganadores': '${:,.2f}',
+                                    '% Compras Ganadores': '{:.2f}%'
+                                })
+                            )
+                        
+                            # Mostrar métricas de resumen
                             dm_col1, dm_col2, dm_col3 = st.columns(3)
                             with dm_col1:
                                 st.metric("Total Compras a Vendors", f"${total_comprado_dm:,.2f}")
                                 st.metric("% del Total de Compras", f"{(total_comprado_dm / detail_table['Total Comprado'].sum() * 100):.2f}%")
-        
+                        
                             with dm_col2:
                                 st.metric("Número de Vendors Drug Manufacturers", f"{len(dm_vendors_detail)}")
                                 st.metric("Productos Comprados a DM que son Ganadores", f"{len(dm_compras_ganadores)}")
-        
+                        
                             with dm_col3:
                                 st.metric("Valor de Compras a DM que son Ganadores", f"${valor_dm_compras_ganadores:,.2f}")
                                 st.metric("% de Compras a DM que son Ganadores", f"{porcentaje_dm_compras_ganadores:.2f}%")
 
                         except Exception as e:
                             import traceback
-                    
                             st.warning(f"Error al calcular estadísticas de drug manufacturers: {str(e)}")
                             st.expander("Detalles del error", expanded=False).code(traceback.format_exc())
                     
@@ -859,405 +1063,117 @@ try:
                 else:
                     st.warning("No se pudo cargar el archivo vendors_dm.csv o está vacío.")
 
-            # Análisis de productos
-            
-            # Preparar datos de producto
-        
-        # 2. Filtrar productos ganadores locales que corresponden al POS seleccionado
-                    
-                    productos_ganadores_local_pos = productos_pos[productos_pos['point_of_sale_id'] == selected_pos]
-        
-                    if not productos_ganadores_local_pos.empty:
-            # 3. Filtrar los que son vendidos por drug manufacturers
-                        productos_ganadores_dm = productos_ganadores_local_pos[
-                            productos_ganadores_local_pos['vendor_id'].isin(dm_vendor_ids)
-                        ]
-            
-            # 4. Calcular estadísticas
-                        total_productos_ganadores = len(productos_ganadores_local_pos)
-                        total_valor_productos_ganadores = productos_ganadores_local_pos['valor_total_vendedor'].sum() if 'valor_total_vendedor' in productos_ganadores_local_pos.columns else 0
-            
-                        productos_ganadores_dm_count = len(productos_ganadores_dm)
-                        valor_productos_ganadores_dm = productos_ganadores_dm['valor_total_vendedor'].sum() if not productos_ganadores_dm.empty and 'valor_total_vendedor' in productos_ganadores_dm.columns else 0
-            
-            # 5. Calcular proporciones
-                        proporcion_productos = (productos_ganadores_dm_count / total_productos_ganadores * 100) if total_productos_ganadores > 0 else 0
-                        proporcion_valor = (valor_productos_ganadores_dm / total_valor_productos_ganadores * 100) if total_valor_productos_ganadores > 0 else 0
-            
-            # 6. Mostrar resultados
-                        #st.subheader("Proporción de Productos Ganadores vendidos por Fabricantes")
-            
-                        #col1, col2 = st.columns(2)
-                        #with col1:
-                         #   st.metric("% de Productos (Cantidad)", f"{proporcion_productos:.2f}%")
-                          #  st.metric("Cantidad de Productos", f"{productos_ganadores_dm_count} de {total_productos_ganadores}")
-            
-                        #with col2:
-                         #   st.metric("% de Valor (Dinero)", f"{proporcion_valor:.2f}%")
-                          #  st.metric("Valor Total", f"${valor_productos_ganadores_dm:,.2f} de ${total_valor_productos_ganadores:,.2f}")
-                    #except Exception as e:
-                    #st.warning(f"Error al calcular la proporción de productos ganadores por fabricantes: {str(e)}")
+                # Análisis de productos
+                st.subheader("Análisis de Productos")
 
-            st.subheader("Análisis de Productos")
-
-            orders_pos = df_original[df_original['point_of_sale_id'] == selected_pos]
-            productos_pos = df_productos_unificados[df_productos_unificados['point_of_sale_id'] == selected_pos] if 'point_of_sale_id' in df_productos_unificados.columns else pd.DataFrame()
-
-            # Calcular conjuntos e intersecciones
-            orders_products = set(orders_pos['super_catalog_id']) if not orders_pos.empty else set()
-            productos_oportunidad = set(productos_pos['super_catalog_id']) if not productos_pos.empty else set()
-            
-            # Calcular intersección
-            intersection = pd.merge(
-                productos_pos, orders_pos, 
-                on=['super_catalog_id', 'point_of_sale_id'], 
-                how='inner',
-                suffixes=('', '_ord')
-            ) if not productos_pos.empty and not orders_pos.empty else pd.DataFrame()
-            
-            intersection_ordenado = intersection.sort_values(['super_catalog_id', 'precio_vendedor'], ascending=[True, True])
-            intersection_sin_repetidos = intersection_ordenado.drop_duplicates('super_catalog_id')
-            st.dataframe(intersection_sin_repetidos.sort_index())
-
-            intersection_percentage = (len(intersection_sin_repetidos) / len(orders_products) * 100) if orders_products else 0
-            productos_conteo= intersection['super_catalog_id'].value_counts()
-            productos_repetidos = productos_conteo[productos_conteo > 1].index.tolist()
-            #st.dataframe(productos_conteo)
-
-
-            # Mostrar métricas de productos
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Total Productos en Compras Reales", f"{len(orders_products):,}")
-            #with col2:
-             #   st.metric("Total Productos con Oportunidad", f"{len(productos_oportunidad):,}")
-            with col3:
-                st.metric("Productos en Intersección no duplicados con menor precio", 
-                         f"{len(intersection_sin_repetidos):,} ({intersection_percentage:.2f}%)")
+                orders_pos = df_original[df_original['point_of_sale_id'] == selected_pos]
+                productos_pos = df_clasificado[df_clasificado['point_of_sale_id'] == selected_pos] if 'point_of_sale_id' in df_clasificado.columns else pd.DataFrame()
+               
+                # Calcular conjuntos e intersecciones
+                orders_products = set(orders_pos['super_catalog_id']) if not orders_pos.empty else set()
+                productos_oportunidad = set(productos_pos['super_catalog_id']) if not productos_pos.empty else set()
                 
-
-
-
-            orders_total, products_total = 0, 0
-            
-            if not intersection.empty:
-                # Calcular valores para productos globales
-                if 'precio_total_droguería' in intersection.columns:
-                    orders_total = intersection['precio_total_droguería'].sum()
-                elif 'unidades_pedidas' in intersection_sin_repetidos.columns and 'precio_minimo' in intersection.columns:
-                    intersection_sin_repetidos['precio_total_droguería'] = intersection_sin_repetidos['unidades_pedidas'] * intersection['precio_minimo']
-                    orders_total = intersection_sin_repetidos['precio_total_droguería'].sum()
+                # Calcular intersección
+                intersection = pd.merge(
+                    productos_pos, orders_pos, 
+                    on=['super_catalog_id', 'point_of_sale_id','order_id'], 
+                    how='inner',
+                    suffixes=('', '_ord')
+                ) if not productos_pos.empty and not orders_pos.empty else pd.DataFrame()
                 
-                if 'valor_total_vendedor' in intersection.columns:
-                    products_total = intersection_sin_repetidos['valor_total_vendedor'].sum()
+                #intersection_ordenado = intersection.sort_values(['super_catalog_id', 'precio_vendedor'], ascending=[True, True])
+                intersection_sin_repetidos = intersection#_ordenado.drop_duplicates('super_catalog_id')
+                
+                intersection_percentage = (len(intersection_sin_repetidos) / len(orders_products) * 100) if orders_products else 0
+                productos_conteo= intersection['super_catalog_id'].value_counts()
+                productos_repetidos = productos_conteo[productos_conteo > 1].index.tolist()
 
-                # Mostrar métricas de valor
-                value_col1, value_col2, value_col3 = st.columns(3)
-                with value_col1:
-                    st.metric("Valor en Compras Reales", f"${orders_total:,.2f}")
-                with value_col2:
-                    st.metric("Valor con Precios Oportunidad", f"${products_total:,.2f}")
-                with value_col3:
-                    # Calcular el porcentaje de ahorro
-                    savings_percentage = ((orders_total - products_total) / orders_total * 100) if orders_total > 0 else 0
-                    st.metric("Ahorro Potencial", f"{savings_percentage:.2f}%")
+                intersection_sin_repetidos_winners = intersection_sin_repetidos[intersection_sin_repetidos['clasificacion']=='Precio vendor minimo']
+                st.write(intersection_sin_repetidos_winners)
+                # Mostrar métricas de productos
+                #st.write(intersection_sin_repetidos_winners)
 
-
-            vendor_df = pd.DataFrame()
-
-            # Procesar datos de vendors potenciales
-            vendor_analysis = []
-            processed_vendors = set()
-
-# PARTE 1: PRIMERO AÑADIR TODOS LOS VENDORS QUE SON DRUG MANUFACTURERS
-# Esta es la parte crucial: asegurar que todos los vendors en dm_vendors_detail se procesen
-            if not dm_vendors_detail.empty and 'Vendor Real ID' in dm_vendors_detail.columns:
-                for _, row in dm_vendors_detail.iterrows():
-                    if pd.notna(row.get('Vendor Real ID')):
-                        vendor_id = row['Vendor Real ID']
-            
-            # Obtener status (si existe en vendor_pos)
-                        vendor_status = obtener_status_vendor(vendor_id, selected_pos, df_vendors_pos)
-                        #try:
-                         #   vendor_pos_info = df_vendors_pos[
-                          #      (df_vendors_pos['point_of_sale_id'] == selected_pos) & 
-                           #     (df_vendors_pos['vendor_id'] == vendor_id)
-                            #]
-                    #        if not vendor_pos_info.empty and 'status' in vendor_pos_info.columns:
-                     #           vendor_status = vendor_pos_info['status'].iloc[0]
-                      #  except Exception:
-    # Si hay error, continuar con status = np.nan
-                       #     pass
-            # Calcular valor potencial (si existe)
-                        potential_value = 0
-                        if not productos_pos.empty and 'vendor_id' in productos_pos.columns:
-                            vendor_products = productos_pos[productos_pos['vendor_id'] == vendor_id]
-                            if not vendor_products.empty and 'valor_total_vendedor' in vendor_products.columns:
-                                potential_value = vendor_products['valor_total_vendedor'].sum()
-            
-            # Verificar si hay potencial convertido
-                        valor_convertido = 0
-                        if not df_potencial_convertido.empty:
-                            potencial_convertido_vendor = df_potencial_convertido[
-                                (df_potencial_convertido['point_of_sale_id'] == selected_pos) & 
-                                (df_potencial_convertido['vendor_id'] == vendor_id)
-                ]
-                            if not potencial_convertido_vendor.empty:
-                                valor_convertido = potencial_convertido_vendor['valor_convertido'].iloc[0]
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Productos en Compras Reales", f"{len(orders_products):,}")
+                with col3:
+                    st.metric("Productos en Intersección no duplicados con menor precio", 
+                             f"{len(intersection_sin_repetidos):,} ({intersection_percentage:.2f}%)")
                     
-                        valor_compras_ganadores = row.get('Valor Compras Ganadores', 0)
-                        if pd.notna(valor_compras_ganadores) and valor_compras_ganadores > 0:
-                # Sumamos este valor al valor convertido
-                            valor_convertido += valor_compras_ganadores
+                orders_total, products_total = 0, 0
+                
+                if not intersection.empty:
+                    # Calcular valores para productos globales
+                    if 'valor_vendedor' in intersection_sin_repetidos.columns:
+                        orders_total = intersection_sin_repetidos_winners['valor_vendedor'].sum()
+                    
+                    if 'precio_total_vendedor' in intersection_sin_repetidos.columns:                    
+                        products_total = intersection_sin_repetidos_winners['precio_total_vendedor'].sum()
+                    
+                    # Mostrar métricas de valor
+                    value_col1, value_col2, value_col3 = st.columns(3)
+                    with value_col1:
+                        st.metric("Valor en Compras Reales (Potencial a Alcanzar)", f"${orders_total:,.2f}")
+                    with value_col2:
+                        st.metric("Valor con Precios Oportunidad", f"${products_total:,.2f}")
+                    with value_col3:
+                        # Calcular el porcentaje de ahorro
+                        savings_percentage = ((orders_total - products_total) / orders_total * 100) if orders_total > 0 else 0
+                        st.metric("Ahorro Potencial", f"{savings_percentage:.2f}%")
 
+                # PARTE CORREGIDA: Análisis de vendors con la nueva función
+                # Utilizar la función actualizar_vendor_analysis para evitar asignar valores convertidos a no-DMs
+                vendor_df = actualizar_vendor_analysis(
+                    productos_pos=productos_pos,
+                    df_vendors_pos=df_vendors_pos,
+                    orders_pos=orders_pos,
+                    df_potencial_convertido=df_clasificado[df_clasificado['clasificacion'] == "Precio droguería minimo"],
+                    dm_vendors_detail=dm_vendors_detail,
+                    selected_pos=selected_pos,
+                    geo_zone=geo_zone,
+                    df_min_purchase=df_min_purchase,
+                    intersection_sin_repetidos_winners=intersection_sin_repetidos_winners  # Añadir este parámetro
+                )
 
-            # Obtener compra mínima
-                        min_purchase_value = 0
-                        if not df_min_purchase.empty and 'name' in df_min_purchase.columns and 'vendor_id' in df_min_purchase.columns:
-                            min_purchase_info = df_min_purchase[
-                                (df_min_purchase['vendor_id'] == vendor_id) & 
-                                (df_min_purchase['name'] == geo_zone)
-                ]
-                            if not min_purchase_info.empty:
-                                min_purchase_value = min_purchase_info['min_purchase'].iloc[0]
-            
-            # Obtener el valor comprado como DM directamente de dm_vendors_detail
-                        dm_row = dm_vendors_detail[dm_vendors_detail['Vendor Real ID'] == vendor_id]
-                        comprado_como_dm = dm_row['Total Comprado'].iloc[0] if not dm_row.empty else 0
-            
-            # Agregar a la lista de análisis
-                        vendor_analysis.append({
-                'Vendor ID': vendor_id,
-                'Status': get_status_description(vendor_status),
-                'Valor Potencial Total': potential_value,
-                'Valor Convertido': valor_convertido,
-                'Compra Mínima': min_purchase_value,
-                # Estos valores no existían en la implementación original pero son útiles
-                'Es Drug Manufacturer': 'Sí',
-                'Drug Manufacturer ID': row.get('Droguería/Vendor ID'),
-                'Total Comprado Como DM': comprado_como_dm
-            })
-            
-                        processed_vendors.add(vendor_id)
+                if not vendor_df.empty:
+                    st.subheader("Detalle por Vendor")
+                    
+                    # Mostrar tabla detallada de vendors
+                    mostrar_tabla_vendor_detalle(vendor_df, dm_vendors_detail)
+                    
+                    # Crear gráfico
+                    fig = crear_grafico_oportunidades(vendor_df, None, selected_pos, dm_vendors_detail)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No se encontraron vendors con venta potencial para este punto de venta.")
 
-            # Preparar datos para vendor analysis
-        #    vendors_reales = set()
-        #    if not pos_data.empty and 'Droguería/Vendor ID' in detail_table.columns:
-    # Convertir a numérico para comparación adecuada
-        #        detail_table['Droguería/Vendor ID'] = pd.to_numeric(detail_table['Droguería/Vendor ID'], errors='coerce')
-        #        vendors_reales = set(detail_table['Droguería/Vendor ID'].unique())
+                st.subheader("Oportunidades con Valor Potencial > $20,000")
 
-# Preparar datos para vendor analysis
-            if not productos_pos.empty and 'vendor_id' in productos_pos.columns:
-    # Filtrar vendors válidos (con vendor_id válido)
-                valid_vendors = productos_pos[productos_pos['vendor_id'].notna() & (productos_pos['vendor_id'] > 0)]
-    
-    # Filtrar para incluir SOLO vendors que NO aparecen en ventas reales
-               # potential_vendors = valid_vendors[~valid_vendors['vendor_id'].isin(vendors_reales)]
-    
-    # Obtener los vendor_ids únicos de venta potencial
-                unique_vendors = valid_vendors['vendor_id'].unique()
+                df_insight_simple = generar_insight_simple(vendor_df, selected_pos)
 
-                for vendor_id in unique_vendors:
-                    # Obtener status
-                    if vendor_id in processed_vendors:
-                        continue
-
-                    vendor_status = obtener_status_vendor(vendor_id, selected_pos, df_vendors_pos)
-                    
-            #        if 'status' in valid_vendors.columns:
-             #           vendor_subset = valid_vendors[valid_vendors['vendor_id'] == vendor_id]
-              #          if not vendor_subset.empty:
-               #             vendor_status = vendor_subset['status'].iloc[0]
-                    
-                    # Obtener compra mínima
-                    min_purchase_value = 0
-                    if not df_min_purchase.empty and 'name' in df_min_purchase.columns and 'vendor_id' in df_min_purchase.columns:
-                        min_purchase_info = df_min_purchase[
-                            (df_min_purchase['vendor_id'] == vendor_id) & 
-                            (df_min_purchase['name'] == geo_zone)
-                        ]
-                        if not min_purchase_info.empty:
-                            min_purchase_value = min_purchase_info['min_purchase'].iloc[0]
-                    
-                    # Obtener órdenes del vendor
-                   # vendor_orders = orders_pos[orders_pos['vendor_id'] == vendor_id] if 'vendor_id' in orders_pos.columns else pd.DataFrame()
-                    
-                    # Calcular total de órdenes únicas
-                    #total_orders = 0
-                    #if not vendor_orders.empty and 'order_id' in vendor_orders.columns:
-                     #   total_orders = len(vendor_orders['order_id'].unique())
-                    
-                    # Calcular órdenes que cumplen con el mínimo
-                    #orders_meeting_minimum = 0
-                    #if min_purchase_value > 0 and not vendor_orders.empty and 'total_compra' in vendor_orders.columns:
-                     #   order_totals = vendor_orders.groupby('order_id')['total_compra'].sum()
-                      #  orders_meeting_minimum = sum(order_totals >= min_purchase_value)
-                    
-                    # Calcular valor potencial
-                    vendor_products = productos_pos[productos_pos['vendor_id'] == vendor_id]
-                    potential_value = vendor_products['valor_total_vendedor'].sum() if 'valor_total_vendedor' in vendor_products.columns else 0
-                    
-                    # Verificar si hay potencial convertido
-                    valor_convertido = 0
-                    if not df_potencial_convertido.empty:
-                        potencial_convertido_vendor = df_potencial_convertido[
-                            (df_potencial_convertido['point_of_sale_id'] == selected_pos) & 
-                            (df_potencial_convertido['vendor_id'] == vendor_id)
-                        ]
-                        if not potencial_convertido_vendor.empty:
-                            valor_convertido = potencial_convertido_vendor['valor_convertido'].iloc[0]
-                    
-                    # Agregar a la lista de análisis
-                    vendor_analysis.append({
-                        'Vendor ID': vendor_id,
-                        'Status': get_status_description(vendor_status),
-                        #'Total Órdenes': total_orders,
-                        #'Órdenes que Cumplen Mínimo': orders_meeting_minimum,
-                        'Valor Potencial Total': potential_value,
-                        'Valor Convertido': valor_convertido,
-                        'Compra Mínima': min_purchase_value
+                if not df_insight_simple.empty:
+    # Aplicar formato
+                    styled_df = df_insight_simple.style.format({
+                        'Valor Potencial': '${:,.2f}'
                     })
-                    
-                    processed_vendors.add(vendor_id)
-            
-            # Añadir vendors que solo tienen potencial convertido
-            if not df_potencial_convertido.empty:
-                potencial_convertido_pos = df_potencial_convertido[df_potencial_convertido['point_of_sale_id'] == selected_pos]
-                for _, row in potencial_convertido_pos.iterrows():
-                    vendor_id = row['vendor_id']
-                    if vendor_id in processed_vendors:
-                        continue  # Ya fue procesado
-                    
-                    # Obtener status (si existe en vendor_pos)
-                    vendor_status = obtener_status_vendor(vendor_id, selected_pos, df_vendors_pos)
-        #            vendor_pos_info = df_vendors_pos[
-         #               (df_vendors_pos['point_of_sale_id'] == selected_pos) & 
-          #              (df_vendors_pos['vendor_id'] == vendor_id)
-           #         ]
-            #        if not vendor_pos_info.empty and 'status' in vendor_pos_info.columns:
-             #           vendor_status = vendor_pos_info['status'].iloc[0]
-                    
-                    # Obtener órdenes del vendor
-              #      vendor_orders = orders_pos[orders_pos['vendor_id'] == vendor_id] if 'vendor_id' in orders_pos.columns else pd.DataFrame()
-                    
-                    # Calcular total de órdenes únicas
-                    #total_orders = 0
-                    #if not vendor_orders.empty and 'order_id' in vendor_orders.columns:
-                     #   total_orders = len(vendor_orders['order_id'].unique())
-                    
-                    # Agregar a la lista de análisis
-                    vendor_analysis.append({
-                        'Vendor ID': vendor_id,
-                        'Status': get_status_description(vendor_status),
-                      #  'Total Órdenes': total_orders,
-                       # 'Órdenes que Cumplen Mínimo': 0,
-                        'Valor Potencial Total': 0,
-                        'Valor Convertido': row['valor_convertido'],
-                        'Compra Mínima': 0
-                    })
-                    processed_vendors.add(vendor_id)
-
-            # Crear DataFrame de análisis
-            if vendor_analysis:
-                vendor_df = pd.DataFrame(vendor_analysis)
     
-    # Mostrar tabla detallada
-                st.subheader("Detalle por Vendor")
+    # Aplicar colores por status
+                    styled_df = styled_df.applymap(
+                        lambda x: 'background-color: #90EE90' if x == "Activo" else 
+                      ('background-color: #FFD700' if x == "Pendiente" else 
+                     'background-color: #ffcccb' if x == "Sin Status" else ''),
+                    subset=['Status']
+                    )
     
-        #        if vendor_analysis:
-         #           vendor_df = pd.DataFrame(vendor_analysis)
-    # En lugar del código original problemático, usar nuestra nueva función
-                mostrar_tabla_vendor_detalle(vendor_df, dm_vendors_detail)
+    # Mostrar tabla
+                    st.dataframe(styled_df)
     
-    # Crear gráfico
-                fig = crear_grafico_oportunidades(vendor_df, df_potencial_convertido, selected_pos, dm_vendors_detail)
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("No se encontraron vendors con venta potencial para este punto de venta.")
-
-
-            # Crear resumen de oportunidades
-        summary_df = create_simple_summary(productos_pos, None, orders_total, products_total, 0)
-            
-        if not summary_df.empty:
-            st.subheader('Insights Accionables por Status de Vendor (Vista Unificada)')
-    
-    # Filter to get all vendors with potential value > 20000
-            filtered_df = summary_df[summary_df['valor_potencial'] > 20000].copy()
-    
-            if not filtered_df.empty:
-        # Add a readable status column
-                filtered_df['Status Texto'] = filtered_df['status'].apply(lambda x: 
-            "Sin Relación Comercial" if pd.isna(x) else 
-            ("Activo" if x == 1 else 
-             ("Pendiente" if x == 2 else 
-              ("Rechazado" if x == 0 else f"Status {x}"))))
-        
-        # Sort by status then by potential value (descending)
-                filtered_df = filtered_df.sort_values(['Status Texto', 'valor_potencial'], ascending=[True, False])
-        
-        # Display the unified table
-                st.dataframe(filtered_df[[
-            'point_of_sale_id', 'vendor_id', 'Status Texto', 'valor_potencial', 
-            'tipo_oportunidad', 'porcentaje_ahorro'
-        ]].style.format({
-            'valor_potencial': '${:,.2f}',
-            'porcentaje_ahorro': '{:.2f}%'
-        }).apply(lambda x: 
-            ['background-color: #ffcccb' if v == 'Sin Relación Comercial' else 
-             'background-color: #90EE90' if v == 'Activo' else 
-             'background-color: #FFD700' if v == 'Pendiente' else '' 
-             for v in x],
-            subset=['Status Texto']
-        ))
-        
-        # Add summary metrics by status
-                st.subheader('Resumen por Status')
-        
-        # Group by status and calculate sums and counts
-                status_summary = filtered_df.groupby('Status Texto').agg({
-            'valor_potencial': ['sum', 'count'],
-            'porcentaje_ahorro': 'mean'
-        }).reset_index()
-        
-        # Rename columns for clarity
-                status_summary.columns = ['Status', 'Valor Potencial Total', 'Cantidad de Vendors', 'Porcentaje Ahorro Promedio']
-        
-        # Display the summary
-                st.dataframe(status_summary.style.format({
-            'Valor Potencial Total': '${:,.2f}',
-            'Porcentaje Ahorro Promedio': '{:.2f}%'
-        }).apply(lambda x: 
-            ['background-color: #ffcccb' if v == 'Sin Relación Comercial' else 
-             'background-color: #90EE90' if v == 'Activo' else 
-             'background-color: #FFD700' if v == 'Pendiente' else '' 
-             for v in x],
-            subset=['Status']
-        ))
-        
-        # Add a chart to visualize potential by status
-                st.subheader('Distribución de Valor Potencial por Status')
-        
-                import plotly.express as px
-        
-                fig = px.pie(filtered_df, 
-                     values='valor_potencial', 
-                     names='Status Texto', 
-                     title='Valor Potencial por Status',
-                     color='Status Texto',
-                     color_discrete_map={
-                         'Sin Relación Comercial': '#ffcccb',
-                         'Activo': '#90EE90',
-                         'Pendiente': '#FFD700'
-                     })
-        
-                fig.update_traces(textinfo='percent+label+value')
-                st.plotly_chart(fig, use_container_width=True)
-        
-            else:
-                st.info("No hay datos disponibles con valor potencial superior a $20,000.")
-
+    # Mostrar total
+                    st.metric("Valor Potencial Total", f"${df_insight_simple['Valor Potencial'].sum():,.2f}")
+                else:
+                    st.info("No se encontraron oportunidades con valor potencial superior a $20,000 para este punto de venta.")
+                
+           
 except Exception as e:
     st.error(f"Error al procesar los datos: {str(e)}")
     import traceback
