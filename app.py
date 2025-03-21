@@ -988,7 +988,7 @@ try:
                                 
                                 # Filtrar compras de este distribuidor específico que son productos ganadores
                                 vendor_compras_ganadores = dm_compras_ganadores[dm_compras_ganadores['vendor_id_comp'] == dm_id] if not dm_compras_ganadores.empty else pd.DataFrame()
-                                st.write(vendor_compras_ganadores)
+                                #st.write(vendor_compras_ganadores)
                                 # Calcular el valor
                                 vendor_valor = 0
                                 if not vendor_compras_ganadores.empty:
