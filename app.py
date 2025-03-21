@@ -944,10 +944,10 @@ try:
 
                             # Obtener la lista de drug_manufacturer_ids de la tabla de detalle
                             dm_detail_ids = set(dm_vendors_detail['Droguería/Vendor ID'].unique())
-                            
                             # Filtrar órdenes que corresponden a drug_manufacturers
                             dm_compras = orders_pos[orders_pos['vendor_id'].isin(dm_detail_ids)].copy()
-                            
+                            st.write(dm_compras['valor_vendedor'].sum())
+
                             # Total comprado a drug manufacturers
                             total_comprado_dm = dm_vendors_detail['Total Comprado'].sum()
                             
@@ -958,20 +958,20 @@ try:
                             dm_compras_ganadores = pd.merge(
                                 dm_compras, 
                                 productos_ganadores_pos,
-                                on=['super_catalog_id', 'point_of_sale_id'],
+                                on=['super_catalog_id', 'point_of_sale_id','order_id'],
                                 suffixes=('_comp', '_gan'),
                                 how='inner'
                             ).drop_duplicates('super_catalog_id')
-
+                            st.write(dm_compras_ganadores['valor_vendedor_comp'].sum())
                             # Calcular el valor total de compras a DMs que son productos ganadores
                             valor_dm_compras_ganadores = 0
                             if not dm_compras_ganadores.empty:
-                                if 'valor_total_vendedor' in dm_compras_ganadores.columns:
-                                    valor_dm_compras_ganadores = dm_compras_ganadores['valor_total_vendedor'].sum()
-                                elif 'unidades_pedidas' in dm_compras_ganadores.columns and 'precio_minimo' in dm_compras_ganadores.columns:
-                                    valor_dm_compras_ganadores = (dm_compras_ganadores['unidades_pedidas'] * dm_compras_ganadores['precio_minimo']).sum()
-                                elif 'valor_vendedor_gan' in dm_compras_ganadores.columns:
-                                    valor_dm_compras_ganadores = dm_compras_ganadores['valor_vendedor_gan'].sum()
+                                #if 'valor_total_vendedor' in dm_compras_ganadores.columns:
+                                  #  valor_dm_compras_ganadores = dm_compras_ganadores['valor_total_vendedor'].sum()
+                                #elif 'unidades_pedidas' in dm_compras_ganadores.columns and 'precio_minimo' in dm_compras_ganadores.columns:
+                                 #   valor_dm_compras_ganadores = (dm_compras_ganadores['unidades_pedidas'] * dm_compras_ganadores['precio_minimo']).sum()
+                                #elif 'valor_vendedor_gan' in dm_compras_ganadores.columns:
+                                valor_dm_compras_ganadores = dm_compras_ganadores['valor_vendedor_comp'].sum()
                             
                             # Calcular porcentaje
                             porcentaje_dm_compras_ganadores = (valor_dm_compras_ganadores / total_comprado_dm * 100) if total_comprado_dm > 0 else 0
@@ -988,7 +988,7 @@ try:
                                 
                                 # Filtrar compras de este distribuidor específico que son productos ganadores
                                 vendor_compras_ganadores = dm_compras_ganadores[dm_compras_ganadores['vendor_id_comp'] == dm_id] if not dm_compras_ganadores.empty else pd.DataFrame()
-                                
+                                st.write(vendor_compras_ganadores)
                                 # Calcular el valor
                                 vendor_valor = 0
                                 if not vendor_compras_ganadores.empty:
@@ -1081,7 +1081,7 @@ try:
                     suffixes=('', '_ord')
                 ) if not productos_pos.empty and not orders_pos.empty else pd.DataFrame()
                 
-                #intersection_ordenado = intersection.sort_values(['super_catalog_id', 'precio_vendedor'], ascending=[True, True])
+                intersection_ordenado = intersection.sort_values(['super_catalog_id', 'precio_vendedor'], ascending=[True, True])
                 intersection_sin_repetidos = intersection#_ordenado.drop_duplicates('super_catalog_id')
                 
                 intersection_percentage = (len(intersection_sin_repetidos) / len(orders_products) * 100) if orders_products else 0
@@ -1089,7 +1089,7 @@ try:
                 productos_repetidos = productos_conteo[productos_conteo > 1].index.tolist()
 
                 intersection_sin_repetidos_winners = intersection_sin_repetidos[intersection_sin_repetidos['clasificacion']=='Precio vendor minimo']
-                st.write(intersection_sin_repetidos_winners)
+                
                 # Mostrar métricas de productos
                 #st.write(intersection_sin_repetidos_winners)
 
