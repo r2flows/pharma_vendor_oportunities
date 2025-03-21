@@ -946,7 +946,7 @@ try:
                             dm_detail_ids = set(dm_vendors_detail['Droguería/Vendor ID'].unique())
                             # Filtrar órdenes que corresponden a drug_manufacturers
                             dm_compras = orders_pos[orders_pos['vendor_id'].isin(dm_detail_ids)].copy()
-                            st.write(dm_compras['valor_vendedor'].sum())
+                            #st.write(dm_compras['valor_vendedor'].sum())
 
                             # Total comprado a drug manufacturers
                             total_comprado_dm = dm_vendors_detail['Total Comprado'].sum()
@@ -962,7 +962,7 @@ try:
                                 suffixes=('_comp', '_gan'),
                                 how='inner'
                             ).drop_duplicates('super_catalog_id')
-                            st.write(dm_compras_ganadores['valor_vendedor_comp'].sum())
+                            #st.write(dm_compras_ganadores['valor_vendedor_comp'].sum())
                             # Calcular el valor total de compras a DMs que son productos ganadores
                             valor_dm_compras_ganadores = 0
                             if not dm_compras_ganadores.empty:
