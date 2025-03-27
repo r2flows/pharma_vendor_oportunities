@@ -1068,39 +1068,43 @@ try:
 
                 orders_pos = df_original[df_original['point_of_sale_id'] == selected_pos]
                 productos_pos = df_clasificado[df_clasificado['point_of_sale_id'] == selected_pos] if 'point_of_sale_id' in df_clasificado.columns else pd.DataFrame()
-               
-                # Calcular conjuntos e intersecciones
+
+# Calcular conjuntos e intersecciones
                 orders_products = set(orders_pos['super_catalog_id']) if not orders_pos.empty else set()
                 productos_oportunidad = set(productos_pos['super_catalog_id']) if not productos_pos.empty else set()
-                
-                # Calcular intersección
+
+# Calcular intersección
                 intersection = pd.merge(
                     productos_pos, orders_pos, 
                     on=['super_catalog_id', 'point_of_sale_id','order_id'], 
                     how='inner',
                     suffixes=('', '_ord')
-                ) if not productos_pos.empty and not orders_pos.empty else pd.DataFrame()
-                
-                #intersection_ordenado = intersection.sort_values(['super_catalog_id', 'precio_vendedor'], ascending=[True, True])
-                intersection_sin_repetidos = intersection#_ordenado.drop_duplicates('super_catalog_id')
-                
-                intersection_percentage = (len(intersection_sin_repetidos) / len(orders_products) * 100) if orders_products else 0
+                    ) if not productos_pos.empty and not orders_pos.empty else pd.DataFrame()
+
+                intersection_ordenado = intersection.sort_values(['super_catalog_id', 'precio_vendedor'], ascending=[True, True])
+                intersection_sin_repetidos = intersection
                 productos_conteo= intersection['super_catalog_id'].value_counts()
                 productos_repetidos = productos_conteo[productos_conteo > 1].index.tolist()
 
                 intersection_sin_repetidos_winners = intersection_sin_repetidos[intersection_sin_repetidos['clasificacion']=='Precio vendor minimo']
-                st.write(intersection_sin_repetidos_winners)
+
+                intersection_percentage = (len(intersection_sin_repetidos) / len(orders_products) * 100) if orders_products else 0
+
+                orders_total, products_total = 0, 0
+                valores_convertidos = 0  # Inicializar la variable valores_convertidos
+
+                #st.write(intersection_sin_repetidos_winners)
                 # Mostrar métricas de productos
                 #st.write(intersection_sin_repetidos_winners)
 
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Total Productos en Compras Reales", f"{len(orders_products):,}")
-                with col3:
-                    st.metric("Productos en Intersección no duplicados con menor precio", 
-                             f"{len(intersection_sin_repetidos):,} ({intersection_percentage:.2f}%)")
+                #col1, col2, col3 = st.columns(3)
+                #with col1:
+                #    st.metric("Total Productos en Compras Reales", f"{len(orders_products):,}")
+                #with col3:
+                #    st.metric("Productos en Intersección no duplicados con menor precio", 
+                #             f"{len(intersection_sin_repetidos):,} ({intersection_percentage:.2f}%)")
                     
-                orders_total, products_total = 0, 0
+                #orders_total, products_total = 0, 0
                 
                 if not intersection.empty:
                     # Calcular valores para productos globales
@@ -1110,13 +1114,21 @@ try:
                     if 'precio_total_vendedor' in intersection_sin_repetidos.columns:                    
                         products_total = intersection_sin_repetidos_winners['precio_total_vendedor'].sum()
                     
+                    if 'dm_vendors_detail' in locals() and not dm_vendors_detail.empty and 'Valor Compras Ganadores' in dm_vendors_detail.columns:
+                        valores_convertidos = dm_vendors_detail['Valor Compras Ganadores'].sum()
+    
                     # Mostrar métricas de valor
-                    value_col1, value_col2, value_col3 = st.columns(3)
+                    value_col1, value_col2, value_col3, value_col4 = st.columns(4)
                     with value_col1:
                         st.metric("Valor en Compras Reales (Potencial a Alcanzar)", f"${orders_total:,.2f}")
                     with value_col2:
                         st.metric("Valor con Precios Oportunidad", f"${products_total:,.2f}")
+                    
                     with value_col3:
+        # Calcular valor potencial neto (valor potencial - valor convertido)
+                        valor_potencial_neto = products_total - valores_convertidos
+                        st.metric("Valor Potencial Neto (Oportunidad - Convertido)", f"${valor_potencial_neto:,.2f}")
+                    with value_col4:
                         # Calcular el porcentaje de ahorro
                         savings_percentage = ((orders_total - products_total) / orders_total * 100) if orders_total > 0 else 0
                         st.metric("Ahorro Potencial", f"{savings_percentage:.2f}%")
